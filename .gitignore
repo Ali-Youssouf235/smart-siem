@@ -141,3 +141,29 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+
+
+
+
+
+# Secrets et config
+.env
+*.env.local
+
+# Docker
+*.log
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dépendances (au cas où, pour backend/frontend)
+node_modules/
+__pycache__/
+*.pyc
+venv/
