@@ -4,7 +4,23 @@
 Ce document décrit le fonctionnement du pipeline d'intégration et de déploiement continu du projet Smart SIEM.
 
 ## Statut
-En cours de mise en place (Jour 2 du projet).
+Workflow CI placeholder fonctionnel (Jour 3). Se déclenche sur push et pull request.
+
+## Déclencheurs
+- Push sur `main`, `develop`, ou toute branche `feature/**`
+- Pull request vers `main` ou `develop`
+
+## Étapes actuelles du pipeline
+1. Checkout du code
+2. Vérification que le pipeline se déclenche correctement (placeholder)
+
+## Prochaines étapes prévues
+- Ajout du lint
+- Ajout des tests unitaires (dépend du code fourni par le Dev Backend/Frontend)
+- Build des images Docker
+- Scan de sécurité (Trivy)
+- Push vers le registre d'images
+- Déploiement automatisé (CD)
 
 ## Structure
 - `.github/workflows/` : workflows GitHub Actions
