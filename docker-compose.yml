@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    networks:
+      - siem-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - siem-network
+    depends_on:
+      - backend
+
+networks:
+  siem-network:
+    driver: bridge
