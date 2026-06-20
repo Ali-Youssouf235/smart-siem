@@ -26,3 +26,9 @@ Workflow CI placeholder fonctionnel (Jour 3). Se déclenche sur push et pull req
 - `.github/workflows/` : workflows GitHub Actions
 - `backend/` : code source backend
 - `frontend/` : code source frontend
+
+## Conteneurisation
+- `backend/Dockerfile` : image Python placeholder (port 8000), à remplacer par le vrai build une fois le code backend disponible
+- `frontend/Dockerfile` : image Node placeholder (port 3000), à remplacer par le vrai build une fois le code frontend disponible
+- `docker-compose.yml` : orchestration locale backend + frontend, testée avec succès le 22/06
+- Base de données : pas encore intégrée au compose, en attente de la décision technique de l'Ingénieur Data
