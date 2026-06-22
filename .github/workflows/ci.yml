@@ -38,11 +38,12 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
+          tags: ghcr.io/ali-youssouf235/smart-siem-backend:latest
+
 
       - name: Build et push de l'image frontend (placeholder)
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-frontend:latest
+          tags: ghcr.io/ali-youssouf235/smart-siem-frontend:latest
