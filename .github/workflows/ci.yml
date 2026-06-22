@@ -15,3 +15,34 @@ jobs:
 
       - name: Vérification que le pipeline se déclenche
         run: echo "Pipeline CI opérationnel - Smart SIEM"
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: placeholder
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Connexion au registre GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build et push de l'image backend (placeholder)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
+
+      - name: Build et push de l'image frontend (placeholder)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-frontend:latest
