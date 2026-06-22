@@ -32,3 +32,10 @@ Workflow CI placeholder fonctionnel (Jour 3). Se déclenche sur push et pull req
 - `frontend/Dockerfile` : image Node placeholder (port 3000), à remplacer par le vrai build une fois le code frontend disponible
 - `docker-compose.yml` : orchestration locale backend + frontend, testée avec succès le 22/06
 - Base de données : pas encore intégrée au compose, en attente de la décision technique de l'Ingénieur Data
+
+## Livrable Semaine 1 — État au 23/06/2026
+- Pipeline CI fonctionnel : déclenchement sur push/PR, vérifié.
+- Images Docker (placeholder) buildées et publiées automatiquement sur GitHub Container Registry à chaque push.
+- Docker Compose local fonctionnel (backend + frontend, testé le 22/06).
+- En attente : code réel du backend et du frontend pour remplacer les placeholders.
+- Prochaine étape : intégration du lint et des tests dès que le code applicatif est disponible.
