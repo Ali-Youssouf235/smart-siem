@@ -1,0 +1,21 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    # Le chemin à l'intérieur du conteneur où Filebeat va chercher les fichiers de logs
+    paths:
+      - /var/log/siem/*.log
+
+processors:
+  - add_host_metadata: ~
+  - add_cloud_metadata: ~
+
+# --- Envoi des données vers Elasticsearch ---
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "elastic"
+  password: "siem2026"
+
+# Désactive la vérification SSL pour le dev local (évite les erreurs de certificat)
+ssl.verification_mode: "none"
+
+logging.level: info
