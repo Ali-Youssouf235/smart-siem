@@ -12,8 +12,8 @@ processors:
 # --- Envoi des données vers Elasticsearch ---
 output.elasticsearch:
   hosts: ["http://elasticsearch:9200"]
-  username: "elastic"
-  password: "siem2026"
+  username: "${ELASTIC_USERNAME}"
+  password: "${ELASTIC_PASSWORD}"
 
 # Désactive la vérification SSL pour le dev local (évite les erreurs de certificat)
 ssl.verification_mode: "none"
