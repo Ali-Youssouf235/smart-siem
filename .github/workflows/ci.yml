@@ -85,3 +85,17 @@ jobs:
           format: table
           exit-code: 0
           severity: CRITICAL,HIGH
+
+  # ─── Job 4 : Notification d'échec ─────────────────────
+  notify-failure:
+    name: Notification échec pipeline
+    runs-on: ubuntu-latest
+    needs: [lint, build-and-push, security-scan]
+    if: failure()
+    steps:
+      - name: Résumé de l'échec
+        run: |
+          echo "❌ Le pipeline CI a échoué sur la branche ${{ github.ref_name }}"
+          echo "📌 Commit : ${{ github.sha }}"
+          echo "👤 Auteur : ${{ github.actor }}"
+          echo "🔗 Voir les détails : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
