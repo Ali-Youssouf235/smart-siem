@@ -75,3 +75,23 @@ En cas de problème sur la version déployée :
 ### Packages GHCR
 - `smart-siem-backend` : image Python/FastAPI
 - `smart-siem-frontend` : image Node placeholder (en attente du code frontend)
+
+## Jour 8 — Notifications et audit secrets (26/06/2026)
+
+### Notifications d'échec
+- Email automatique GitHub activé pour tout échec de workflow
+- Job `notify-failure` dans le pipeline : s'exécute uniquement en cas
+  d'échec, affiche le résumé (branche, commit, auteur, lien direct)
+
+### Audit des secrets — état au 26/06/2026
+| Secret | Stockage | Statut |
+|---|---|---|
+| ELASTIC_PASSWORD | .env + GitHub Actions Secrets | ✅ Sécurisé |
+| ELASTIC_USERNAME | .env + GitHub Actions Secrets | ✅ Sécurisé |
+| KIBANA_TOKEN | .env + GitHub Actions Secrets | ✅ Sécurisé |
+| GHCR_TOKEN | GitHub Actions Secrets | ✅ Sécurisé |
+
+### Règle absolue
+Aucun secret ne doit être commité dans le repo.
+Tout secret doit être dans `.env` (local, ignoré par Git)
+et dans GitHub Actions Secrets (pipeline).
