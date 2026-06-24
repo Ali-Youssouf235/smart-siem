@@ -7,7 +7,6 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  # ─── Job 1 : Lint Python ───────────────────────────────
   lint:
     name: Lint Python (flake8)
     runs-on: ubuntu-latest
@@ -28,9 +27,8 @@ jobs:
       - name: Lancement du lint flake8
         run: |
           cd backend
-          flake8 app/ --max-line-length=120 --exclude=__pycache__ --statistics
+          flake8 app/ --statistics
 
-  # ─── Job 2 : Build Docker ──────────────────────────────
   build-and-push:
     name: Build et Push des images Docker
     runs-on: ubuntu-latest
@@ -41,6 +39,10 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
+
+      - name: Convertir le nom du owner en minuscules
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Connexion à GitHub Container Registry
         uses: docker/login-action@v3
@@ -54,25 +56,28 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-backend:latest
+          tags: ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-backend:latest
 
       - name: Build et push image frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-frontend:latest
+          tags: ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-frontend:latest
 
-  # ─── Job 3 : Scan sécurité Trivy ──────────────────────
   security-scan:
     name: Scan sécurité des images (Trivy)
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
+      - name: Convertir le nom du owner en minuscules
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Scan de l'image backend
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-backend:latest
+          image-ref: ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-backend:latest
           format: table
           exit-code: 0
           severity: CRITICAL,HIGH
