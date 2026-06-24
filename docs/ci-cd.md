@@ -39,3 +39,22 @@ Workflow CI placeholder fonctionnel (Jour 3). Se déclenche sur push et pull req
 - Docker Compose local fonctionnel (backend + frontend, testé le 22/06).
 - En attente : code réel du backend et du frontend pour remplacer les placeholders.
 - Prochaine étape : intégration du lint et des tests dès que le code applicatif est disponible.
+
+## Jour 6 — Pipeline CI complet (24/06/2026)
+
+### Jobs actifs
+1. **lint** : vérification du code Python backend avec flake8
+    - Config dans `.flake8` à la racine du projet
+    - Déclenché sur tout push/PR
+2. **build-and-push** : build et push des images Docker vers GHCR
+    - Se lance uniquement si le lint est passé
+    - Conversion du nom du owner en minuscules via bash (exigence GHCR)
+3. **security-scan** : scan des vulnérabilités avec Trivy
+    - Se lance uniquement si le build est passé
+    - Remonte les vulnérabilités CRITICAL et HIGH
+
+### Ordre d'exécution
+lint → build-and-push → security-scan
+
+### Point en attente
+- Le Dev Backend doit supprimer l'import inutilisé `typing.Dict` dans `app/core/engine.py`
