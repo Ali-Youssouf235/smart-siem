@@ -7,18 +7,34 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  placeholder:
+  # ─── Job 1 : Lint Python ───────────────────────────────
+  lint:
+    name: Lint Python (flake8)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Vérification que le pipeline se déclenche
-        run: echo "Pipeline CI opérationnel - Smart SIEM"
+      - name: Installation de Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
+      - name: Installation des dépendances
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Lancement du lint flake8
+        run: |
+          cd backend
+          flake8 app/ --max-line-length=120 --exclude=__pycache__ --statistics
+
+  # ─── Job 2 : Build Docker ──────────────────────────────
   build-and-push:
+    name: Build et Push des images Docker
     runs-on: ubuntu-latest
-    needs: placeholder
+    needs: lint
     permissions:
       contents: read
       packages: write
@@ -26,24 +42,37 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Connexion au registre GitHub Container Registry
+      - name: Connexion à GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build et push de l'image backend (placeholder)
+      - name: Build et push image backend
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: true
-          tags: ghcr.io/ali-youssouf235/smart-siem-backend:latest
+          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
 
-
-      - name: Build et push de l'image frontend (placeholder)
+      - name: Build et push image frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/ali-youssouf235/smart-siem-frontend:latest
+          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-frontend:latest
+
+  # ─── Job 3 : Scan sécurité Trivy ──────────────────────
+  security-scan:
+    name: Scan sécurité des images (Trivy)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Scan de l'image backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
