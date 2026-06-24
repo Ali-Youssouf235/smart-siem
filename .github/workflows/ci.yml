@@ -56,14 +56,18 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-backend:latest
+          tags: | 
+            ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-backend:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-backend:${{ github.sha }}
 
       - name: Build et push image frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-frontend:latest
+          tags: | 
+            ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-frontend:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/smart-siem-frontend:${{ github.sha }}
 
   security-scan:
     name: Scan sécurité des images (Trivy)
