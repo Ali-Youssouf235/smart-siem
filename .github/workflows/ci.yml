@@ -54,14 +54,14 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
+          tags: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-backend:latest
 
       - name: Build et push image frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/smart-siem-frontend:latest
+          tags: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-frontend:latest
 
   # ─── Job 3 : Scan sécurité Trivy ──────────────────────
   security-scan:
@@ -72,7 +72,7 @@ jobs:
       - name: Scan de l'image backend
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/smart-siem-backend:latest
+          image-ref: ghcr.io/${{ github.repository_owner | lower }}/smart-siem-backend:latest
           format: table
           exit-code: 0
           severity: CRITICAL,HIGH
