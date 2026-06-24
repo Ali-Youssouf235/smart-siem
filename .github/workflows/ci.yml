@@ -28,7 +28,7 @@ jobs:
       - name: Lancement du lint flake8
         run: |
           cd backend
-          flake8 app/ --max-line-length=120 --exclude=__pycache__ --statistics
+          flake8 app/ --statistics
 
   # ─── Job 2 : Build Docker ──────────────────────────────
   build-and-push:
