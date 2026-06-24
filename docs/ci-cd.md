@@ -58,3 +58,20 @@ lint → build-and-push → security-scan
 
 ### Point en attente
 - Le Dev Backend doit supprimer l'import inutilisé `typing.Dict` dans `app/core/engine.py`
+
+## Jour 7 — Versioning et rollback (25/06/2026)
+
+### Tags d'images
+Chaque build pousse deux tags vers GHCR :
+- `latest` : toujours la version la plus récente
+- `<SHA_du_commit>` : version exacte liée au commit Git
+
+### Procédure de rollback
+En cas de problème sur la version déployée :
+1. Trouver le SHA du commit stable dans l'onglet Packages de GitHub
+2. Exécuter : `./scripts/rollback.sh <SHA_DU_COMMIT>`
+3. Le script redémarre automatiquement backend et frontend avec l'ancienne image
+
+### Packages GHCR
+- `smart-siem-backend` : image Python/FastAPI
+- `smart-siem-frontend` : image Node placeholder (en attente du code frontend)
