@@ -95,3 +95,22 @@ En cas de problème sur la version déployée :
 Aucun secret ne doit être commité dans le repo.
 Tout secret doit être dans `.env` (local, ignoré par Git)
 et dans GitHub Actions Secrets (pipeline).
+
+## Jour 9 — Test intégration complète et structure CD (27/06/2026)
+
+### Test docker compose complet
+Tous les services testés ensemble :
+- Elasticsearch : ✅
+- Kibana : ✅
+- Filebeat : ✅
+- Backend FastAPI : ✅
+- Frontend : placeholder (en attente du code Dev Frontend)
+
+### Job CD ajouté
+- Se déclenche uniquement sur la branche `main`
+- En attente de l'environnement cible préparé par l'Ingénieur Infra
+- Sera connecté au Jour 10
+
+### Blocages identifiés
+- Frontend : pas encore de code disponible
+- Ingénieur Data : credentials en dur dans le code Python (signalé)
