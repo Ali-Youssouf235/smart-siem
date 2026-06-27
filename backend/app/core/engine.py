@@ -2,12 +2,37 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from app.schemas.log_schema import LogBaseSchema
 from app.schemas.alert_schema import AlertBaseSchema
-from app.core.database import save_log_to_elasticsearch # On importe notre nouvelle fonction !
+from app.core.database import save_log_to_elasticsearch, es_client # On récupère le client Elastic
 import uuid
 
-# Le LOG_BUFFER reste utile temporairement pour la corrélation en temps réel (fenêtre de 5min)
 LOG_BUFFER: List[LogBaseSchema] = []
 ALERTE_STORAGE_GLOBAL: List[AlertBaseSchema] = []
+
+# 🟢 NOUVEAUTÉ SOAR : Fonction de remédiation automatique (Table LOGS_ACTIONS_INCIDENTS)
+def trigger_soar_playbook(alerte_id: str, action_type: str, cible_ip: str):
+    """Simule une action corrective automatique et l'enregistre dans Elasticsearch."""
+    action_id = f"ACT-{uuid.uuid4().hex[:8].upper()}"
+    timestamp_act = datetime.utcnow().isoformat()
+    
+    # Message de description dynamique conforme à ton dictionnaire de données
+    description = f"Playbook SOAR déclenché automatiquement. Commande exécutée : [iptables -A INPUT -s {cible_ip} -j DROP]. Statut : Succès."
+    
+    action_document = {
+        "id": action_id,
+        "action_type": action_type,         # ex: "blocage d'IP"
+        "timestamp": timestamp_act,
+        "description": description,
+        "alerte_id": alerte_id              # Lien direct avec l'alerte générée
+    }
+    
+    # On pousse l'action corrective dans l'index dédié d'Elasticsearch
+    try:
+        if es_client:
+            es_client.index(index="smart-siem-actions", id=action_id, document=action_document)
+            print(f"⚡ [SOAR PLAYBOOK] Action {action_id} enregistrée avec succès dans Elastic : IP {cible_ip} bloquée.")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'enregistrement de l'action SOAR : {e}")
+
 
 def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     """Scénario S3 : Détecte 5 échecs de connexion SSH en moins de 60 secondes."""
@@ -15,10 +40,7 @@ def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     
     if new_log not in LOG_BUFFER:
         LOG_BUFFER.append(new_log)
-        
-        # SAUVEGARDE PROFESSIONNELLE : On convertit le schéma en dictionnaire JSON et on l'envoie à Elastic
         log_dict = new_log.model_dump()
-        # On s'assure que la date est au format texte ISO pour Elasticsearch
         log_dict["timestamp"] = log_dict["timestamp"].isoformat()
         save_log_to_elasticsearch(log_dict)
 
@@ -45,8 +67,23 @@ def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
             utilisateur_id=None
         )
         ALERTE_STORAGE_GLOBAL.append(nouvelle_alerte)
-        return nouvelle_alerte
         
+        # 🟢 LES DEUX LIGNES COMPLÉMENTAIRES POUR LES STATS :
+        if es_client:
+            alerte_dict = nouvelle_alerte.model_dump()
+            alerte_dict["timestamp"] = alerte_dict["timestamp"].isoformat()
+            # On stocke l'alerte dans 'smart-siem-logs' pour que notre route GET/stats la trouve !
+            es_client.index(index="smart-siem-logs", id=nouvelle_alerte.id, document=alerte_dict)
+        
+        # APPEL DU SOAR : L'alerte est levée, on bloque instantanément l'adresse IP source !
+        trigger_soar_playbook(
+            alerte_id=nouvelle_alerte.id, 
+            action_type="blocage d'IP", 
+            cible_ip=new_log.source_ip
+        )
+        
+        return nouvelle_alerte
+    
     return None
 
 def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
@@ -55,8 +92,6 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     
     if new_log not in LOG_BUFFER:
         LOG_BUFFER.append(new_log)
-        # Pas besoin de save_log_to_elasticsearch ici, car le log est déjà sauvegardé par la règle du haut 
-        # s'il n'était pas dans le buffer.
     
     if new_log.log_type not in ["auth", "réseau"] or "Failed" in new_log.raw_message:
         return None
@@ -83,6 +118,14 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
             utilisateur_id=None
         )
         ALERTE_STORAGE_GLOBAL.append(nouvelle_alerte)
+        
+        # 🟢 APPEL DU SOAR : On applique aussi un playbook pour le mouvement latéral
+        trigger_soar_playbook(
+            alerte_id=nouvelle_alerte.id, 
+            action_type="isolation de machine", 
+            cible_ip=new_log.source_ip
+        )
+        
         return nouvelle_alerte
         
     return None
