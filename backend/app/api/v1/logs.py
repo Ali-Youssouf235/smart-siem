@@ -1,24 +1,30 @@
 from fastapi import APIRouter, status, HTTPException
 from app.schemas.log_schema import LogBaseSchema
 from app.core.engine import check_brute_force_ssh, check_lateral_movement
+# On importe la fonction de sauvegarde depuis la base de données
+from app.core.database import save_log_to_elasticsearch
 
 router = APIRouter(prefix="/api/v1/logs", tags=["Gestion des Logs"])
 
 @router.post("/ingest", status_code=status.HTTP_201_CREATED)
 async def ingest_log(log_in: LogBaseSchema):
     try:
-        # On passe le log dans les deux filtres du moteur de corrélation
+        # 1. 🟢 SAUVEGARDE DIRECTE : Écriture immédiate dans Elasticsearch
+        log_dict = log_in.model_dump()
+        log_dict["timestamp"] = log_dict["timestamp"].isoformat()
+        save_log_to_elasticsearch(log_dict, index_name="smart-siem-logs")
+
+        # 2. Analyse par les filtres du moteur de corrélation
         alerte_bf = check_brute_force_ssh(log_in)
         alerte_ml = check_lateral_movement(log_in)
         
         reponse = {
             "status": "success",
-            "message": "Log analysé par les règles de corrélation S3 et S6",
+            "message": "Log enregistré dans Elasticsearch et analysé par les règles S3/S6",
             "alerte_declenchee": False,
             "regles_violées": []
         }
         
-        # Si l'une des deux règles a mordu, on lève l'alerte
         if alerte_bf:
             reponse["alerte_declenchee"] = True
             reponse["regles_violées"].append("S3_BRUTE_FORCE")

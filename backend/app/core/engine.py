@@ -2,9 +2,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from app.schemas.log_schema import LogBaseSchema
 from app.schemas.alert_schema import AlertBaseSchema
+from app.core.database import save_log_to_elasticsearch # On importe notre nouvelle fonction !
 import uuid
 
-# Mémoire tampon partagée pour stocker tous les logs récents
+# Le LOG_BUFFER reste utile temporairement pour la corrélation en temps réel (fenêtre de 5min)
 LOG_BUFFER: List[LogBaseSchema] = []
 ALERTE_STORAGE_GLOBAL: List[AlertBaseSchema] = []
 
@@ -12,10 +13,15 @@ def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     """Scénario S3 : Détecte 5 échecs de connexion SSH en moins de 60 secondes."""
     global LOG_BUFFER, ALERTE_STORAGE_GLOBAL
     
-    # NOTE: L'ajout au LOG_BUFFER est maintenant géré de manière centrale ou par la première règle
     if new_log not in LOG_BUFFER:
         LOG_BUFFER.append(new_log)
         
+        # SAUVEGARDE PROFESSIONNELLE : On convertit le schéma en dictionnaire JSON et on l'envoie à Elastic
+        log_dict = new_log.model_dump()
+        # On s'assure que la date est au format texte ISO pour Elasticsearch
+        log_dict["timestamp"] = log_dict["timestamp"].isoformat()
+        save_log_to_elasticsearch(log_dict)
+
     temps_limite = new_log.timestamp - timedelta(seconds=60)
     
     if new_log.log_type != "auth" or "Failed password" not in new_log.raw_message:
@@ -47,16 +53,16 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     """Scénario S6 : Détecte une même IP se connectant à plus de 3 hôtes différents en 5 min."""
     global LOG_BUFFER, ALERTE_STORAGE_GLOBAL
     
-    # CORRECTION : On s'assure que le log actuel est bien dans le tampon pour l'analyse !
     if new_log not in LOG_BUFFER:
         LOG_BUFFER.append(new_log)
+        # Pas besoin de save_log_to_elasticsearch ici, car le log est déjà sauvegardé par la règle du haut 
+        # s'il n'était pas dans le buffer.
     
     if new_log.log_type not in ["auth", "réseau"] or "Failed" in new_log.raw_message:
         return None
         
     temps_limite = new_log.timestamp - timedelta(seconds=300)
     
-    # On cherche toutes les connexions réussies de cette IP depuis 5 min
     connexions_recentes = [
         log for log in LOG_BUFFER
         if log.source_ip == new_log.source_ip
@@ -67,7 +73,6 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     
     hotes_visites = set(log.host for log in connexions_recentes)
     
-    # Si l'IP a visité 3 hôtes ou plus, on déclenche !
     if len(hotes_visites) >= 3:
         nouvelle_alerte = AlertBaseSchema(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
