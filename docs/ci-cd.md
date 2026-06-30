@@ -114,3 +114,20 @@ Tous les services testés ensemble :
 ### Blocages identifiés
 - Frontend : pas encore de code disponible
 - Ingénieur Data : credentials en dur dans le code Python (signalé)
+
+## Serveur Elasticsearch central — décision d'équipe (27/06/2026)
+
+### Contexte
+Chaque membre lançait sa propre instance Elasticsearch locale, créant des
+bases de données différentes et désynchronisées (Data et Backend
+travaillaient sur deux instances séparées).
+
+### Décision
+La machine du DevOps (Ali) sert de serveur central Elasticsearch/Kibana
+pour toute l'équipe, le temps que l'Infra finalise l'environnement de
+déploiement définitif.
+
+### Configuration
+- Port 9200 (Elasticsearch) et 5601 (Kibana) ouverts dans le pare-feu Windows
+- URL communiquée à l'équipe : http://[IP_LOCALE]:9200
+- Cette IP changera lors du passage sur l'environnement Infra définitif (Jour 10)
