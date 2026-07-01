@@ -4,6 +4,9 @@ from app.core.engine import check_brute_force_ssh, check_lateral_movement
 from app.core.database import save_log_to_elasticsearch
 from app.services.parser import parse_raw_log 
 from app.core.ueba import detect_behavioral_anomalies
+from typing import Optional
+from data.search import search_logs
+from data.search import search_logs, get_timeline
 
 router = APIRouter(prefix="/api/v1/logs", tags=["Gestion des Logs"])
 
@@ -50,6 +53,68 @@ async def ingest_log(log_in: LogBaseSchema):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail=f"Erreur pendant l'analyse : {str(e)}"
+        )
+    
+@router.get("/timeline", status_code=status.HTTP_200_OK)
+async def get_ip_timeline(
+    source_ip: Optional[str] = None,
+    host: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
+    """
+    Génère la Timeline chronologique d'une adresse IP pour l'investigation numérique.
+    Calcule automatiquement le delta_seconds entre chaque log suspect.
+    """
+    try:
+        # Appel direct de la fonction de la couche Data
+        result = get_timeline(
+            source_ip = source_ip, 
+            host      = host, 
+            date_from = date_from, 
+            date_to   = date_to
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erreur lors de la génération de la timeline d'investigation : {str(e)}"
+        )
+    
+@router.get("/search", status_code=status.HTTP_200_OK)
+async def search_multi_criteria(
+    source_ip: Optional[str] = None,
+    severity: Optional[str] = None, 
+    log_type: Optional[str] = None,
+    host: Optional[str] = None, 
+    date_from: Optional[str] = None, 
+    date_to: Optional[str] = None,
+    keyword: Optional[str] = None, 
+    page: int = 0, 
+    size: int = 100
+):
+    """
+    Moteur de recherche multi-critères Smart SIEM pour le Frontend.
+    Permet de filtrer et de paginer l'ensemble des logs normalisés.
+    """
+    try:
+        # Appel direct de la logique de recherche de la couche Data
+        results = search_logs(
+            source_ip  = source_ip,
+            severity   = severity,
+            log_type   = log_type,
+            host       = host,
+            date_from  = date_from,
+            date_to    = date_to,
+            keyword    = keyword,
+            page       = page,
+            size       = size
+        )
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erreur lors de l'exécution de la recherche multi-critères : {str(e)}"
         )
 
 
