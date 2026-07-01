@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.api.v1 import logs, alerts 
+from app.api.v1 import logs, alerts, rules, agent, auth  # 🟢 AJOUT DES MODULES
 from app.core.database import es_client
 from app.api.v1.reports import router as reports_router
 
@@ -11,7 +11,6 @@ async def lifespan(app: FastAPI):
     if es_client:
         print("🔌 Connexion validée vers le cluster Elasticsearch au démarrage.")
     yield
-    # Logique exécutée à la fermeture du Backend (si nécessaire)
 
 app = FastAPI(
     title="Smart SIEM - CTU API Backend",
@@ -32,6 +31,9 @@ app.add_middleware(
 # Enregistrement officiel des routeurs
 app.include_router(logs.router)
 app.include_router(alerts.router)
+app.include_router(rules.router)   # 🟢 INCLUSION DES RÈGLES
+app.include_router(agent.router)  # 🟢 INCLUSION DES AGENTS
+app.include_router(auth.router)    # 🟢 INCLUSION AUTH & USERS
 app.include_router(reports_router)
 
 @app.get("/health", tags=["Infrastructure"])

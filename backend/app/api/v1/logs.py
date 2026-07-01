@@ -4,26 +4,26 @@ from app.core.engine import check_brute_force_ssh, check_lateral_movement
 from app.core.database import save_log_to_elasticsearch
 from app.services.parser import parse_raw_log 
 from app.core.ueba import detect_behavioral_anomalies
-from typing import Optional
-from data.search import search_logs
+from typing import Optional, List
 from data.search import search_logs, get_timeline
 
 router = APIRouter(prefix="/api/v1/logs", tags=["Gestion des Logs"])
 
-@router.post("/ingest", status_code=status.HTTP_201_CREATED)
+# --- 1. INGESTION ET ENREGISTREMENT ---
+
+@router.post("/ingest/json", status_code=status.HTTP_201_CREATED)
 async def ingest_log(log_in: LogBaseSchema):
+    """Reçoit un log pré-structuré au format JSON et l'analyse."""
     try:
-        # 1. SAUVEGARDE DIRECTE : Écriture immédiate dans Elasticsearch
+        # SAUVEGARDE DIRECTE : Écriture immédiate dans Elasticsearch
         log_dict = log_in.model_dump()
         log_dict["timestamp"] = log_dict["timestamp"].isoformat()
         save_log_to_elasticsearch(log_dict, index_name="smart-siem-logs")
 
-        # 2. Analyse par les filtres du moteur de corrélation (S3 / S6)
+        # Analyse par les filtres du moteur de corrélation et UEBA
         alerte_bf = check_brute_force_ssh(log_in)
         alerte_ml = check_lateral_movement(log_in)
-        
-        # 🟢 AJOUT UEBA SUR ROUTE STANDARD : Détection comportementale sur le JSON
-        alerte_ueba = detect_behavioral_anomalies(log_in.model_dump())
+        alerte_ueba = detect_behavioral_anomalies(log_dict)
         
         reponse = {
             "status": "success",
@@ -54,109 +54,33 @@ async def ingest_log(log_in: LogBaseSchema):
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail=f"Erreur pendant l'analyse : {str(e)}"
         )
-    
-@router.get("/timeline", status_code=status.HTTP_200_OK)
-async def get_ip_timeline(
-    source_ip: Optional[str] = None,
-    host: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None
-):
-    """
-    Génère la Timeline chronologique d'une adresse IP pour l'investigation numérique.
-    Calcule automatiquement le delta_seconds entre chaque log suspect.
-    """
-    try:
-        # Appel direct de la fonction de la couche Data
-        result = get_timeline(
-            source_ip = source_ip, 
-            host      = host, 
-            date_from = date_from, 
-            date_to   = date_to
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Erreur lors de la génération de la timeline d'investigation : {str(e)}"
-        )
-    
-@router.get("/search", status_code=status.HTTP_200_OK)
-async def search_multi_criteria(
-    source_ip: Optional[str] = None,
-    severity: Optional[str] = None, 
-    log_type: Optional[str] = None,
-    host: Optional[str] = None, 
-    date_from: Optional[str] = None, 
-    date_to: Optional[str] = None,
-    keyword: Optional[str] = None, 
-    page: int = 0, 
-    size: int = 100
-):
-    """
-    Moteur de recherche multi-critères Smart SIEM pour le Frontend.
-    Permet de filtrer et de paginer l'ensemble des logs normalisés.
-    """
-    try:
-        # Appel direct de la logique de recherche de la couche Data
-        results = search_logs(
-            source_ip  = source_ip,
-            severity   = severity,
-            log_type   = log_type,
-            host       = host,
-            date_from  = date_from,
-            date_to    = date_to,
-            keyword    = keyword,
-            page       = page,
-            size       = size
-        )
-        return results
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Erreur lors de l'exécution de la recherche multi-critères : {str(e)}"
-        )
 
 
 @router.post("/ingest/raw", status_code=status.HTTP_201_CREATED)
 async def ingest_raw_log(raw_log: str = Body(..., media_type="text/plain")):
-    """
-    Reçoit un log textuel brut, l'analyse via des expressions régulières (Regex),
-    le normalise au format standard et l'enregistre DIRECTEMENT dans Elasticsearch.
-    """
+    """Reçoit un log textuel brut, le normalise via Regex et l'analyse."""
     try:
-        # 1. On passe la ligne brute dans notre usine de parsing
         parsed_data = parse_raw_log(raw_log)
-        
         if not parsed_data:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Le format du log brut n'a pas pu être identifié par le parser regex."
             )
             
-        # 2. FIX SAUVEGARDE DIRECTE : On prépare le dictionnaire pour Elasticsearch
         log_to_save = dict(parsed_data)
         
-        # Formatage de la date en texte ISO pour Elasticsearch
         if hasattr(log_to_save["timestamp"], "isoformat"):
             log_to_save["timestamp"] = log_to_save["timestamp"].isoformat()
         else:
             log_to_save["timestamp"] = str(log_to_save["timestamp"])
             
-        # On force l'écriture immédiate dans l'index 'smart-siem-logs'
         save_log_to_elasticsearch(log_to_save, index_name="smart-siem-logs")
         
-        # 3. Pour le moteur de corrélation (alertes), on crée le schéma Pydantic de contrôle
         log_schema = LogBaseSchema(**parsed_data)
-        
-        # On exécute l'analyse des règles statiques (S3/S6)
         alerte_bf = check_brute_force_ssh(log_schema)
         alerte_ml = check_lateral_movement(log_schema)
-
-        # On exécute l'analyse des anomalies comportementales (S4 - UEBA)
         alerte_ueba = detect_behavioral_anomalies(parsed_data)
         
-        # 4. Construction de la réponse Swagger (Nettoyée de la double définition)
         reponse = {
             "status": "success",
             "message": f"Log textuel brut normalisé sous l'ID {log_to_save['id']} et enregistré dans Elasticsearch.",
@@ -185,3 +109,99 @@ async def ingest_raw_log(raw_log: str = Body(..., media_type="text/plain")):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Échec de la normalisation et du stockage du log brut : {str(e)}"
         )
+
+
+@router.post("/ingest/bulk", status_code=status.HTTP_201_CREATED)
+async def ingest_bulk_logs(logs_in: List[LogBaseSchema]):
+    """Permet l'ingestion massive de logs (Bulk) optimisée pour les agents de collecte."""
+    try:
+        for log_in in logs_in:
+            log_dict = log_in.model_dump()
+            log_dict["timestamp"] = log_dict["timestamp"].isoformat()
+            save_log_to_elasticsearch(log_dict, index_name="smart-siem-logs")
+        return {"status": "success", "message": f"{len(logs_in)} logs ingérés avec succès en mode bulk."}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Erreur lors de l'ingestion par lot (bulk) : {str(e)}"
+        )
+
+
+# --- 2. CONSULTATION ET RECHERCHE ---
+
+@router.get("", status_code=status.HTTP_200_OK)
+async def get_all_logs(page: int = 0, size: int = 50):
+    """Récupère la liste globale des derniers logs indexés (Page d'accueil)."""
+    try:
+        return search_logs(page=page, size=size)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search", status_code=status.HTTP_200_OK)
+async def search_multi_criteria(
+    source_ip: Optional[str] = None,
+    severity: Optional[str] = None, 
+    log_type: Optional[str] = None,
+    host: Optional[str] = None, 
+    date_from: Optional[str] = None, 
+    date_to: Optional[str] = None,
+    keyword: Optional[str] = None, 
+    page: int = 0, 
+    size: int = 100
+):
+    """Moteur de recherche multi-critères Smart SIEM pour le Frontend."""
+    try:
+        return search_logs(
+            source_ip=source_ip, severity=severity, log_type=log_type,
+            host=host, date_from=date_from, date_to=date_to,
+            keyword=keyword, page=page, size=size
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/timeline", status_code=status.HTTP_200_OK)
+async def get_ip_timeline(
+    source_ip: Optional[str] = None,
+    host: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
+    """Génère la Timeline chronologique d'une adresse IP pour l'investigation numérique."""
+    try:
+        return get_timeline(source_ip=source_ip, host=host, date_from=date_from, date_to=date_to)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{id}", status_code=status.HTTP_200_OK)
+async def get_log_by_id(id: str):
+    """Récupère le détail complet d'un événement unique via son ID unique log."""
+    try:
+        res = search_logs(keyword=id, size=1)
+        if not res.get("logs"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Log introuvable.")
+        return res["logs"][0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- 3. FILTRAGE RAPIDE ---
+
+@router.get("/severity/critical", status_code=status.HTTP_200_OK)
+async def get_critical_logs():
+    """Filtre rapide pour charger immédiatement tous les événements à haute criticité."""
+    try:
+        return search_logs(severity="HIGH", size=50)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/type/auth", status_code=status.HTTP_200_OK)
+async def get_auth_logs():
+    """Filtre rapide pour charger immédiatement tous les événements d'authentification."""
+    try:
+        return search_logs(log_type="ssh", size=50)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
