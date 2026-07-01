@@ -35,21 +35,26 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     container_name: siem-elasticsearch
     environment:
-      - node.name=siem-node
-      - cluster.name=siem-cluster
-      - discovery.type=single-node
-      - ELASTIC_PASSWORD=siem2026
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false # Sans SSL pour faciliter le dev local
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    - node.name=siem-node
+    - cluster.name=siem-cluster
+    - discovery.type=single-node
+    - ELASTIC_PASSWORD=siem2026
+    - xpack.security.enabled=true
+    - xpack.security.http.ssl.enabled=true
+    - xpack.security.http.ssl.keystore.path=certs/es.p12
+    - xpack.security.transport.ssl.enabled=true
+    - xpack.security.transport.ssl.keystore.path=certs/es.p12
+    - xpack.security.transport.ssl.truststore.path=certs/es.p12
+    - ES_JAVA_OPTS=-Xms512m -Xmx512m
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
+      - ./certs:/usr/share/elasticsearch/config/certs
     ports:
       - "9200:9200"
     networks:
       - siem-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "-u", "elastic:siem2026", "http://localhost:9200"]
+      test: ["CMD", "curl", "-f", "-u", "elastic:siem2026", "https://localhost:9200"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -63,9 +68,6 @@ services:
       - ./logs:/var/log/siem:ro
     networks:
       - siem-network
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.0
@@ -73,10 +75,12 @@ services:
     ports:
       - "5601:5601"
     environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=AAEAAWVsYXN0aWMva2liYW5hL2tpYmFuYS10b2tlbjp0amlGNGxrX1FoQ3dXRVQ5SDZBN1hB
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
+      - ELASTICSEARCH_HOSTS=https://elasticsearch:9200
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=AAEAAWVsYXN0aWMva2liYW5hL2tpYmFuYS10b2tlbjpJS2VtTFFablFpQzViZGxaVGNfakZ
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=/usr/share/kibana/config/certs/ca.crt
+      - ELASTICSEARCH_SSL_VERIFICATIONMODE=none
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    volumes:
+      - ./certs:/usr/share/kibana/config/certs
     networks:
       - siem-network
