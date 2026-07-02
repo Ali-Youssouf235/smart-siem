@@ -15,9 +15,16 @@ services:
     container_name: smart-siem-backend
     ports:
       - "8000:8000"
+    environment:
+      - ELASTIC_URL=http://elasticsearch:9200
+      - ELASTIC_USERNAME=${ELASTIC_USERNAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
     networks:
       - siem-network
     restart: unless-stopped
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
