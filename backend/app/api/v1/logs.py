@@ -10,8 +10,6 @@ from data.search import search_logs, get_timeline
 router = APIRouter(prefix="/api/v1/logs", tags=["Gestion des Logs"])
 
 # --- 1. INGESTION ET ENREGISTREMENT ---
-
-@router.post("/ingest/json", status_code=status.HTTP_201_CREATED)
 async def ingest_log(log_in: LogBaseSchema):
     """Reçoit un log pré-structuré au format JSON et l'analyse."""
     try:
@@ -138,6 +136,8 @@ async def get_all_logs(page: int = 0, size: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+from typing import Optional
+
 @router.get("/search", status_code=status.HTTP_200_OK)
 async def search_multi_criteria(
     source_ip: Optional[str] = None,
@@ -152,15 +152,22 @@ async def search_multi_criteria(
 ):
     """Moteur de recherche multi-critères Smart SIEM pour le Frontend."""
     try:
-        return search_logs(
+        # 🟢 On appelle ta fonction de recherche d'origine sans RIEN modifier à ses paramètres
+        result = search_logs(
             source_ip=source_ip, severity=severity, log_type=log_type,
             host=host, date_from=date_from, date_to=date_to,
             keyword=keyword, page=page, size=size
         )
+        
+        # 🟢 Sécurité pour le Live Feed : Si le résultat est directement une liste, on l'encapsule dans un dictionnaire 
+        # pour que Dashboard.jsx s'y retrouve (qu'il reçoive bien un format {"logs": [...]})
+        if isinstance(result, list):
+            return {"logs": result}
+            
+        return result
+
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
 @router.get("/timeline", status_code=status.HTTP_200_OK)
 async def get_ip_timeline(
     source_ip: Optional[str] = None,

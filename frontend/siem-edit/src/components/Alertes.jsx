@@ -12,7 +12,7 @@ export default function Alertes({ user }) {
 
   const isLecteur = user?.role === 'lecteur'
 
-  // 🔄 Chargement des alertes depuis Elasticsearch via FastAPI
+// 🔄 Chargement des alertes depuis Elasticsearch via FastAPI
   const fetchAlerts = async () => {
     setLoading(true)
     setError('')
@@ -23,14 +23,38 @@ export default function Alertes({ user }) {
 
       const data = await alertsApi.list(params)
       
-      // Sécurité : s'adapter au format renvoyé par FastAPI (liste ou objet)
+      let rawAlerts = []
+      // 1. Extraction sécurisée selon la structure renvoyée
       if (Array.isArray(data)) {
-        setAlertes(data)
+        rawAlerts = data
       } else if (data && data.alerts) {
-        setAlertes(data.alerts)
-      } else {
-        setAlertes([])
+        rawAlerts = data.alerts
       }
+
+      // 2. 🟢 MAPPING : Traduction des champs Elasticsearch réels pour le rendu React
+      const mappedAlerts = rawAlerts.map((item, index) => {
+        // Normalisation de la sévérité (Elasticsearch renvoie souvent en MAJUSCULES : "CRITICAL")
+        const rawSev = (item.niveau_criticite || item.severity || 'info').toLowerCase()
+        // Ajustement pour faire correspondre "medium" avec ton filtre "warning"
+        const finalSev = rawSev === 'medium' ? 'warning' : rawSev
+
+        return {
+          id: item.id || item._id || `ALERTE-${index}`,
+          severity: finalSev,
+          // Récupération dynamique du message textuel
+          message: item.message_brut || item.message || "Événement de sécurité détecté",
+          // Extraction propre de l'heure (HH:MM:SS) depuis le timestamp complet
+          time: item.timestamp ? item.timestamp.substring(11, 19) : (item.time || 'En direct'),
+          status: item.status || 'nouveau',
+          source: item.agent_id || item.source || 'Collecteur Local',
+          ip: item.source_ip || item.ip || 'N/A',
+          host: item.host || 'Machine Windows',
+          mitre: item.nom_regle || item.mitre || 'T1110 - Brute Force SSH'
+        }
+      })
+
+      setAlertes(mappedAlerts)
+
     } catch (err) {
       console.error("Erreur lors de la récupération des alertes:", err)
       setError("Impossible de joindre le cluster Elasticsearch ou l'API.")

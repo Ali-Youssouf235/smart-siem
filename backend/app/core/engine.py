@@ -8,6 +8,30 @@ import uuid
 LOG_BUFFER: List[LogBaseSchema] = []
 ALERTE_STORAGE_GLOBAL: List[AlertBaseSchema] = []
 
+INDEX_RULES = "smart-siem-rules"
+
+
+def get_rule_config(rule_id: str, default_threshold: int, default_severity: str):
+    """
+    🟢 Lit la configuration réelle d'une règle (seuil, sévérité) depuis
+    Elasticsearch (index smart-siem-rules), pour que le CRUD des règles
+    (créer/modifier/supprimer depuis l'interface Règles) ait un effet concret
+    et immédiat sur le moteur de corrélation — sans cette fonction, modifier
+    une règle depuis le front ne changeait strictement rien à la détection.
+    """
+    if not es_client:
+        return default_threshold, default_severity
+    try:
+        result = es_client.get(index=INDEX_RULES, id=rule_id, ignore=[404])
+        if result and result.get("found"):
+            src = result["_source"]
+            if src.get("enabled") is False:
+                return None, None  # règle désactivée : aucune détection
+            return src.get("threshold", default_threshold), src.get("severity", default_severity)
+    except Exception:
+        pass
+    return default_threshold, default_severity
+
 # 🟢 NOUVEAUTÉ SOAR : Fonction de remédiation automatique (Table LOGS_ACTIONS_INCIDENTS)
 def trigger_soar_playbook(alerte_id: str, action_type: str, cible_ip: str):
     """Simule une action corrective automatique et l'enregistre dans Elasticsearch."""
@@ -57,11 +81,15 @@ def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
         and log.timestamp >= temps_limite
     ]
     
-    if len(echecs_sur_hote) >= 5:
+    seuil, severite = get_rule_config("S3", default_threshold=5, default_severity="CRITICAL")
+    if seuil is None:  # règle S3 désactivée depuis l'interface
+        return None
+
+    if len(echecs_sur_hote) >= seuil:
         nouvelle_alerte = AlertBaseSchema(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             timestamp=datetime.utcnow(),
-            niveau_criticite="CRITICAL",
+            niveau_criticite=severite,
             statut="ouvert",
             regle_id="MITRE-T1110-BRUTEFORCE",
             utilisateur_id=None
@@ -108,11 +136,15 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
     
     hotes_visites = set(log.host for log in connexions_recentes)
     
-    if len(hotes_visites) >= 3:
+    seuil, severite = get_rule_config("S6", default_threshold=3, default_severity="HIGH")
+    if seuil is None:  # règle S6 désactivée depuis l'interface
+        return None
+
+    if len(hotes_visites) >= seuil:
         nouvelle_alerte = AlertBaseSchema(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             timestamp=datetime.utcnow(),
-            niveau_criticite="HIGH",
+            niveau_criticite=severite,
             statut="ouvert",
             regle_id="MITRE-T1081-LATERAL-MOVEMENT",
             utilisateur_id=None

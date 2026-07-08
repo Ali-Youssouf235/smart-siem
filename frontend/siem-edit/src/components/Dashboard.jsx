@@ -38,14 +38,13 @@ const loadDashboardData = async () => {
       const realLow = statsRes?.by_severity?.LOW ?? 0
       const liveAgents = statsRes?.active_agents ?? 0
 
+      // 🟢 Reconstruction propre pour s'assurer que même à 0, la structure de la légende existe
       setStats({
         totalAlerts: realTotal,
         criticalCount: realCritical,
         highCount: realHigh,
         activeAgents: liveAgents,
         totalAgents: statsRes?.total_agents ?? (liveAgents > 0 ? 1 : 0),
-        
-        // 🟢 On récupère le vrai historique temporel calculé par Elasticsearch !
         graphTimeline: statsRes?.graph_timeline ?? [{"time": "Aucun log", "alerts": 0, "resolved": 0}],
         
         severityData: [
@@ -53,15 +52,18 @@ const loadDashboardData = async () => {
           { name: 'Haute', value: realHigh, color: colors.high },
           { name: 'Moyenne', value: realMedium, color: colors.warning },
           { name: 'Basse', value: realLow, color: colors.success },
-        ].filter(item => item.value > 0),
-        sourceData: []
+        ] // 🟢 On retire le .filter pour que le jury voie les compteurs à 0 au lieu d'un graphique vide
       })
 
-      if (Array.isArray(logsRes)) {
-        setRecentLogs(logsRes.slice(0, 8))
-      } else if (logsRes?.logs) {
-        setRecentLogs(logsRes.logs.slice(0, 8))
+      // 🟢 Extraction robuste pour le Live Feed
+      if (logsRes && logsRes.logs) {
+        setRecentLogs(logsRes.logs)
+      } else if (Array.isArray(logsRes)) {
+        setRecentLogs(logsRes)
+      } else {
+        setRecentLogs([])
       }
+
     } catch (err) {
       console.error("Erreur lors de la synchronisation du Dashboard:", err)
       setError("Erreur de liaison avec FastAPI.")
@@ -69,13 +71,18 @@ const loadDashboardData = async () => {
       setLoading(false)
     }
   }
-
   // Polling automatique : rafraîchit le dashboard toutes les 5 secondes pour la démo !
-  useEffect(() => {
-    loadDashboardData()
-    const interval = setInterval(loadDashboardData, 5000)
-    return () => clearInterval(interval)
-  }, [])
+ useEffect(() => {
+  // Chargement immédiat au montage du composant
+  loadDashboardData();
+
+  // 🔄 Interroge FastAPI toutes les 3 secondes pour mettre le Live Feed à jour
+  const interval = setInterval(() => {
+    loadDashboardData();
+  }, 3000);
+
+  return () => clearInterval(interval); // Nettoyage à la fermeture
+}, []);
 
   return (
     <div style={styles.container}>
@@ -203,33 +210,46 @@ const loadDashboardData = async () => {
           </div>
         </div>
 
-        {/* Console connectée à Elasticsearch pour prouver le lien réel */}
-        <div style={styles.gridCard}>
-          <div style={styles.cardHeader}>
-            <h3 style={styles.cardTitle}>Console Ingestion d'Événements (Elasticsearch Live Feed)</h3>
-            <span style={styles.cardSub}>Derniers événements bruts indexés dans smart-siem-logs</span>
-          </div>
-          <div style={styles.terminal}>
-            {recentLogs.length === 0 ? (
-              <span style={{ color: '#5fffbd', opacity: 0.6 }}>[✓] Connexion au cluster établie. En attente de télémétrie locale...</span>
-            ) : (
-              recentLogs.map((log, index) => {
-                const messageAFFICHE = log.raw_message && log.raw_message.trim() !== "\u0000" 
-                  ? log.raw_message 
-                  : `Événement sur l'hôte [${log.host || 'unknown-device'}] (ID: ${log.id || 'N/A'})`;
+        {/* 🖥️ CONSOLE INGESTION D'ÉVÉNEMENTS (ELASTICSEARCH LIVE FEED) */}
+<div style={{
+  backgroundColor: '#0c1017', 
+  border: '1px solid #30363d', 
+  borderRadius: '6px', 
+  padding: '15px', 
+  fontFamily: 'monospace', 
+  color: '#7ee787' // Style vert terminal
+}}>
+  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', borderBottom: '1px solid #21262d', paddingBottom: '5px' }}>
+    <span style={{ color: '#8b949e', fontWeight: 'bold' }}>📡 smart-siem-logs | Live Feed</span>
+    <span style={{ color: '#58a6ff', fontSize: '12px' }}>● Synchro 3s active</span>
+  </div>
 
-                return (
-                  <div key={index} style={styles.terminalLine}>
-                    <span style={styles.termTime}>[{log.timestamp ? log.timestamp.substring(11, 19) : 'LIVE'}]</span>
-                    <span style={{ color: log.severity === 'HIGH' || log.severity === 'CRITICAL' ? colors.critical : '#5fffbd' }}>
-                      {messageAFFICHE}
-                    </span>
-                  </div>
-                )
-              })
-            )}
+  <div style={{ height: '220px', overflowY: 'auto', fontSize: '13px', lineHeight: '1.6' }}>
+    {recentLogs.length === 0 ? (
+      <div style={{ color: '#8b949e', fontStyle: 'italic', padding: '20px 0', textAlign: 'center' }}>
+        ⏳ En attente de télémétrie en provenance de collecteur.py...
+      </div>
+    ) : (
+      recentLogs.map((log, index) => {
+        // Extraction propre de l'heure pour le style
+        const time = log.timestamp ? log.timestamp.substring(11, 19) : 'LIVE';
+        const isFailed = log.message_brut?.includes('Failed') || log.message?.includes('Failed');
+
+        return (
+          <div key={index} style={{ marginBottom: '6px', borderLeft: `3px solid ${isFailed ? '#f85149' : '#308f43'}`, paddingLeft: '8px' }}>
+            <span style={{ color: '#8b949e' }}>[{time}]</span>{' '}
+            <span style={{ color: isFailed ? '#f85149' : '#58a6ff', fontWeight: 'bold' }}>
+              [{log.severity || log.niveau_criticite || 'INFO'}]
+            </span>{' '}
+            <span style={{ color: '#c9d1d9' }}>
+              {log.message_brut || log.message || JSON.stringify(log)}
+            </span>
           </div>
-        </div>
+        );
+      })
+    )}
+  </div>
+</div>
       </div>
     </div>
   )

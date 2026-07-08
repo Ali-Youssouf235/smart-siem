@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from app.api.v1 import logs, alerts, rules, agent, auth  # 🟢 AJOUT DES MODULES
 from app.core.database import es_client
 from app.api.v1.reports import router as reports_router
+from app.api.v1.alerts import anomaly_router, dashboard_router  # 🟢 CORRECTIF routes /../
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,6 +36,8 @@ app.include_router(rules.router)   # 🟢 INCLUSION DES RÈGLES
 app.include_router(agent.router)  # 🟢 INCLUSION DES AGENTS
 app.include_router(auth.router)    # 🟢 INCLUSION AUTH & USERS
 app.include_router(reports_router)
+app.include_router(anomaly_router)     # 🟢 CORRECTIF : anciennement /api/v1/alerts/../anomaly/*
+app.include_router(dashboard_router)   # 🟢 CORRECTIF : anciennement /api/v1/alerts/../dashboard/*
 
 @app.get("/health", tags=["Infrastructure"])
 async def health_check():

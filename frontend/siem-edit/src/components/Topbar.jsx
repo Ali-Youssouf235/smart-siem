@@ -1,14 +1,39 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { colors, roleConfig, navItems } from '../theme'
+import { alertsApi } from '../api'
 
 export default function Topbar({ currentPage, onNavigate, user, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  // 🟢 Compteur réel d'alertes non résolues (remplace le badge "7" codé en dur)
+  const [openAlertCount, setOpenAlertCount] = useState(null)
 
   const visibleItems = navItems.filter(item => !item.adminOnly || user?.role === 'admin')
   const role = user?.role || 'lecteur'
   const roleCfg = roleConfig[role]
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchOpenAlertsCount = async () => {
+      try {
+        const data = await alertsApi.list({})
+        const rawAlerts = Array.isArray(data) ? data : (data?.alerts || [])
+        // "Non résolu" = statut backend différent de 'résolu' (voir alert_schema.py)
+        const openCount = rawAlerts.filter(a => (a.statut || a.status) !== 'résolu').length
+        if (!cancelled) setOpenAlertCount(openCount)
+      } catch (err) {
+        // Pas d'alerte affichée plutôt qu'un chiffre inventé en cas d'échec réseau
+        if (!cancelled) setOpenAlertCount(null)
+      }
+    }
+
+    fetchOpenAlertsCount()
+    // Rafraîchit le badge toutes les 30s pour rester représentatif en continu
+    const interval = setInterval(fetchOpenAlertsCount, 30000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
 
   return (
     <>
@@ -42,7 +67,9 @@ export default function Topbar({ currentPage, onNavigate, user, onLogout }) {
                 >
                   <i className={`ti ${item.icon}`} style={{ fontSize: 16 }} />
                   <span>{item.label}</span>
-                  {item.id === 'alertes' && <span style={styles.navBadge}>7</span>}
+                  {item.id === 'alertes' && openAlertCount > 0 && (
+                    <span style={styles.navBadge}>{openAlertCount}</span>
+                  )}
                 </button>
               )
             })}
