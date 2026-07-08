@@ -2,151 +2,50 @@
 base.py
 --------
 
-Classe de base de tous les collecteurs Smart-SIEM.
+Classe de base abstraite de tous les collecteurs Smart-SIEM.
 
-Elle fournit toutes les fonctionnalités communes
+Elle fournit uniquement les propriétés communes
 aux collecteurs Linux et Windows.
 
-Les classes filles n'ont qu'à implémenter
-la collecte des journaux.
+Les classes filles doivent implémenter:
+- La gestion de l'état (OS-spécifique)
+- La collecte des journaux (OS-spécifique)
 """
 
-import os
-import glob
-import json
 import socket
-
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import List
+from typing import Generator, Dict
 
 from agent.config_loader import ConfigLoader
 from agent.logger import AgentLogger
 
 
-from pathlib import Path
-
-STATE_FILE = Path(__file__).resolve().parent / "agent_state.json"
-
 class BaseCollector(ABC):
+    """Classe abstraite de base pour tous les collecteurs."""
 
     def __init__(self,
                  config: ConfigLoader,
                  logger: AgentLogger):
-
+        """Initialise les proprietes communes a tous les collecteurs."""
         self.config = config
         self.logger = logger.get_logger()
-
         self.hostname = socket.gethostname()
-
         self.perimetre_id = self.config.get(
             "agent",
             "perimetre_id",
             default="perimetre-dmz"
         )
 
-        self.dev_mode = self.config.get(
-            "agent",
-            "dev_mode",
-            default=True
-        )
-
-        self.file_positions = {}
-
-        self._load_state()
-
-    # ==========================================================
-    # Gestion de l'état
-    # ==========================================================
-
-    def _load_state(self):
-
-        if os.path.exists(STATE_FILE):
-
-            try:
-
-                with open(
-                    STATE_FILE,
-                    "r",
-                    encoding="utf-8"
-                ) as f:
-
-                    self.file_positions = json.load(f)
-
-                self.logger.info("Etat précédent restauré.")
-
-            except Exception as e:
-
-                self.logger.warning(
-                    f"Impossible de restaurer l'état : {e}"
-                )
-
-                self.file_positions = {}
-
-    def _save_state(self):
-
-        try:
-
-            with open(
-                STATE_FILE,
-                "w",
-                encoding="utf-8"
-            ) as f:
-
-                json.dump(
-                    self.file_positions,
-                    f,
-                    indent=4
-                )
-
-        except Exception as e:
-
-            self.logger.error(
-                f"Impossible de sauvegarder l'état : {e}"
-            )
-
-    # ==========================================================
-    # Utilitaires
-    # ==========================================================
-
-    def _get_timestamp(self):
-
-        return datetime.now(
-            timezone.utc
-        ).isoformat()
-
-    def _resolve_log_files(self) -> List[str]:
-
-        files = []
-
-        patterns = self.config.get(
-            "logs",
-            "files",
-            default=[]
-        )
-
-        for pattern in patterns:
-
-            matched = glob.glob(
-                pattern,
-                recursive=True
-            )
-
-            if matched:
-
-                files.extend(matched)
-
-                self.logger.info(
-                    f"{pattern} -> {len(matched)} fichier(s)"
-                )
-
-            else:
-
-                self.logger.warning(
-                    f"Aucun fichier trouvé : {pattern}"
-                )
-
-        return list(dict.fromkeys(files))
+    @abstractmethod
+    def collect(self) -> Generator[Dict, None, None]:
+        """Methode abstraite que chaque collecteur (Linux/Windows) doit implementer.
+        
+        Doit retourner un generateur de dictionnaires avec au minimum:
+        - raw_line: le contenu brut du log
+        - source: d'ou provient le log
+        - os: le systeme d'exploitation
+        """
+        pass
 
     # ==========================================================
     # Filtre sécurité

@@ -6,41 +6,38 @@ from agent.sender import LogSender
 from agent.retry import RetryManager
 from agent.collector import CentralCollector
 
-def main():
-    print("==================================================")
-    print("          DÉMARRAGE DE L'AGENT SMART-SIEM         ")
-    print("==================================================")
-
-    config_path = os.path.join("config", "config.yaml")
-    if not os.path.exists(config_path):
-        print(f"[❌ ERROR] Fichier de configuration introuvable : {config_path}")
-        sys.exit(1)
-        
-    config = ConfigLoader(config_path)
-
-    # Initialisation propre du Logger
-    logger_instance = AgentLogger(config)
-    logger = logger_instance.get_logger()
-    logger.info("Configuration et système de journalisation initialisés.")
-
-    # Configuration du Sender
-    sender = LogSender(config, logger_instance)
-
-    # Configuration de la résilience
-    retry_max_size = config.get("agent", "buffer_max_size", default=5000)
-    retry_manager = RetryManager(sender, logger_instance, max_buffer_size=retry_max_size)
+def launch_agent():
+    """Lance l'agent principal de collecte"""
+    print("\n" + "="*60)
+    print("     DÉMARRAGE DE L'AGENT SMART-SIEM")
+    print("="*60)
     
-    # Liaison bidirectionnelle
-    sender.retry_manager = retry_manager
-    logger.info("Gestionnaire de résilience (Retry Cache) actif.")
-
-    # Lancement du moteur central
+    config_path = os.path.join("config", "config.yaml")
+    
+    # Vérification de sécurité si le fichier n'existe pas
+    if not os.path.exists(config_path):
+        print(f"[ERREUR] Fichier de configuration introuvable : {config_path}")
+        print("Veuillez d'abord exécuter installer.py")
+        sys.exit(1)
+    
     try:
+        config = ConfigLoader(config_path)
+        logger_instance = AgentLogger(config)
+        logger = logger_instance.get_logger()
+        
+        logger.info("Agent démarré avec succès.")
+        
+        sender = LogSender(config, logger_instance)
+        retry_manager = RetryManager(sender, logger_instance, 
+                                    max_buffer_size=config.get("agent", "buffer_max_size", 5000))
+        sender.retry_manager = retry_manager
+        
         collector = CentralCollector(config, logger_instance, sender)
         collector.run()
+        
     except Exception as e:
-        logger.critical(f"Erreur fatale lors de l'exécution de l'agent : {e}")
+        print(f"[ERREUR FATALE] {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    launch_agent()
