@@ -10,6 +10,36 @@ INDEX_USERS = "smart-siem-users"
 
 # --- 2. AUTHENTIFICATION & PROFIL ---
 
+# À ajouter dans app/api/v1/auth.py
+
+@router.post("/auth/login", status_code=status.HTTP_200_OK)
+async def login_analyst(credentials: dict):
+    """
+    Route de connexion pour l'interface React.
+    Simule la vérification des identifiants et renvoie un Token JWT fictif.
+    """
+    username = credentials.get("username")
+    password = credentials.get("password")
+
+    # Simulation simple pour ta démo (tu peux mettre ce que tu veux ici)
+    if username == "admin" and password == "admin":  
+        return {
+            "status": "success",
+            "message": "Authentification réussie sur le Smart SIEM",
+            "access_token": "FAKE_JWT_TOKEN_FOR_DEMO_SECRET",
+            "token_type": "bearer",
+            "user": {
+                "username": "analyste_soc_01",
+                "role": "admin"
+            }
+        }
+    
+    # Si les identifiants simulés sont mauvais
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, 
+        detail="Identifiants SOC incorrects."
+    )
+
 @router.post("/auth/refresh", status_code=status.HTTP_200_OK)
 async def refresh_token():
     """

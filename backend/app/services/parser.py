@@ -338,6 +338,48 @@ SENSITIVE_PORTS = {
     "8080": "HTTP-Alt", "8443": "HTTPS-Alt", "27017": "MongoDB",
 }
 
+# ── Éléments génériques utilisés par la catégorisation heuristique ──────────
+GENERIC_IP_REGEX = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+GENERIC_PORT_REGEX = re.compile(r'\bport[=:\s]+(\d{1,5})\b', re.IGNORECASE)
+GENERIC_TIMESTAMP_REGEXES = [
+    re.compile(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?'),
+    re.compile(r'\w{3}\s{1,2}\d{1,2}\s+\d{2}:\d{2}:\d{2}'),
+    re.compile(r'\d{2}/\d{2}/\d{4}[ T]\d{2}:\d{2}:\d{2}'),
+]
+
+# ── Table de catégorisation heuristique (mots-clés → log_type / sévérité) ────
+# Utilisée uniquement quand AUCUNE regex stricte de REGEX_PATTERNS n'a matché.
+# On explore la ligne brute à la recherche d'éléments caractéristiques connus
+# (vocabulaire d'authentification, de pare-feu, d'IDS, de bases de données...)
+# pour affecter malgré tout un log_type et une sévérité pertinents plutôt que
+# de se rabattre systématiquement sur "inconnu".
+# Format de chaque règle : (log_type, sévérité_par_défaut, [mots-clés déclencheurs])
+# L'ordre est important : du plus spécifique/critique au plus générique.
+HEURISTIC_RULES = [
+    ("auth",       "HIGH",     ["failed password", "invalid user", "authentication failure",
+                                 "auth fail", "login failed", "échec de connexion",
+                                 "access denied", "unauthorized", "authentification échouée"]),
+    ("auth",       "NOTICE",   ["accepted password", "accepted publickey", "session opened",
+                                 "logon success", "logged in", "connexion réussie"]),
+    ("windows",    "HIGH",     ["eventid", "event id", "levels displayname", "leveldisplayname",
+                                 "security-auditing", "microsoft-windows", "winevt", "evtx"]),
+    ("ids/ips",    "HIGH",     ["alert", "signature", "snort", "suricata", "intrusion",
+                                 "exploit", "malware", "trojan", "payload"]),
+    ("firewall",   "HIGH",     ["drop", "block", "deny", "reject", "iptables", "netfilter",
+                                 "ufw", "firewall"]),
+    ("database",   "MEDIUM",   ["mysql", "postgres", "postgresql", "mariadb", "select ",
+                                 "insert into", "sql error", "database error", "sqlstate"]),
+    ("web",        "MEDIUM",   ["get /", "post /", "put /", "delete /", "http/1.",
+                                 "user-agent", " 404 ", " 500 ", "wp-admin", "phpinfo"]),
+    ("dns",        "INFO",     ["dns", "query:", " in a\n", " in a ", " in aaaa", "resolver"]),
+    ("dhcp",       "INFO",     ["dhcp", "dhcprequest", "dhcpoffer", "dhcpack", "dhcpdiscover"]),
+    ("vpn",        "INFO",     ["openvpn", "wireguard", "tls:", "vpn", "ipsec"]),
+    ("container",  "INFO",     ["docker", "container", "kubernetes", "k8s", "pod/", "namespace"]),
+    ("système",    "MEDIUM",   ["kernel panic", "segfault", "out of memory", "oom-killer",
+                                 "service failed", "systemd"]),
+    ("réseau",     "NOTICE",   ["tcp", "udp", "icmp", "src=", "dst=", "srcip", "dstip"]),
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. FONCTIONS D'ENRICHISSEMENT
 # ─────────────────────────────────────────────────────────────────────────────
@@ -387,6 +429,79 @@ def parse_timestamp(ts_str: str, fmt: str = None) -> datetime:
         except Exception:
             continue
     return datetime.utcnow()
+
+
+def heuristic_categorize(raw_line: str) -> Optional[Dict]:
+    """
+    Catégorisation de secours par mots-clés / éléments caractéristiques.
+
+    Appelée uniquement quand AUCUNE regex de REGEX_PATTERNS n'a matché la ligne.
+    Plutôt que de renvoyer immédiatement "inconnu", on cherche dans le texte brut
+    des indices connus (vocabulaire d'authentification, de pare-feu, d'IDS, de
+    bases de données, adresses IP, ports...) pour affecter un log_type et une
+    sévérité aussi précis que possible.
+
+    Retourne None seulement si absolument aucun indice exploitable n'a été trouvé
+    (dans ce cas, parse_raw_log se rabat sur le vrai fallback "inconnu").
+    """
+    text = raw_line.lower()
+
+    matched_type = None
+    matched_severity = None
+    matched_keyword = None
+
+    for log_type, severity, keywords in HEURISTIC_RULES:
+        for kw in keywords:
+            if kw in text:
+                matched_type = log_type
+                matched_severity = severity
+                matched_keyword = kw
+                break
+        if matched_type:
+            break
+
+    # Extraction générique d'IP (on garde la 1ère comme source, la 2e comme destination)
+    ips = GENERIC_IP_REGEX.findall(raw_line)
+    src_ip = ips[0] if len(ips) >= 1 else None
+    dst_ip = ips[1] if len(ips) >= 2 else None
+
+    # Extraction générique de port + escalade de sévérité si port sensible touché
+    port_match = GENERIC_PORT_REGEX.search(raw_line)
+    port = port_match.group(1) if port_match else None
+    service = detect_port_sensitivity(port, raw_line) if port else None
+    if port in ["22", "3389", "445", "23"] and matched_severity in ["HIGH", "MEDIUM"]:
+        matched_severity = "CRITICAL"
+
+    # Extraction générique d'un timestamp si un pattern connu apparaît dans la ligne
+    ts_value = None
+    for ts_regex in GENERIC_TIMESTAMP_REGEXES:
+        ts_m = ts_regex.search(raw_line)
+        if ts_m:
+            ts_value = ts_m.group(0)
+            break
+    timestamp = parse_timestamp(ts_value) if ts_value else datetime.utcnow()
+
+    # Aucun mot-clé ET aucune IP détectée : on n'a vraiment rien à proposer
+    if not matched_type and not ips:
+        return None
+
+    # Une IP a été trouvée mais aucun mot-clé de catégorie : on classe en "réseau"
+    # générique plutôt que de perdre l'information, avec une sévérité prudente.
+    if not matched_type:
+        matched_type = "réseau"
+        matched_severity = "NOTICE"
+        matched_keyword = "ip_detectee"
+
+    return create_siem_document(
+        timestamp=timestamp,
+        host="unknown-device", log_type=matched_type, severity=matched_severity,
+        source_ip=src_ip, destination_ip=dst_ip, raw_message=raw_line,
+        extra={
+            "format": "heuristique",
+            "matched_keyword": matched_keyword,
+            "port": port, "service": service,
+        }
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. PARSERS PAR FORMAT
@@ -743,7 +858,38 @@ def parse_raw_log(raw_line: str) -> Dict:
         try:
             import json
             obj = json.loads(raw_line)
-            ts_key = next((k for k in ["timestamp","time","@timestamp","date"] if k in obj), None)
+
+            # 🟢 Cas particulier : JSON d'événement Windows tel que produit par
+            # `Get-WinEvent | ConvertTo-Json` côté agent (champs PowerShell natifs
+            # Id / EventID, LevelDisplayName, ProviderName, TimeCreated, MachineName,
+            # RecordId, Message). Sans cette détection, ces logs étaient auparavant
+            # catégorisés en "json" générique au lieu de "windows".
+            event_id = str(obj.get("Id", obj.get("EventID", obj.get("event_id", ""))))
+            is_windows_event = bool(event_id) and (
+                "LevelDisplayName" in obj or "ProviderName" in obj
+                or "MachineName" in obj or "RecordId" in obj
+            )
+            if is_windows_event:
+                sev, desc = WINDOWS_EVENT_SEVERITY.get(event_id, ("INFO", "Événement Windows"))
+                ts_raw = obj.get("TimeCreated", obj.get("timestamp"))
+                ts = parse_timestamp(str(ts_raw)) if ts_raw else datetime.utcnow()
+                return create_siem_document(
+                    timestamp=ts,
+                    host=obj.get("MachineName", "windows-host"),
+                    log_type="windows", severity=sev,
+                    source_ip=None, destination_ip=None, raw_message=raw_line,
+                    extra={
+                        "format": "windows_event_json", "event_id": event_id,
+                        "event_desc": desc,
+                        "provider": obj.get("ProviderName"),
+                        "level": obj.get("LevelDisplayName"),
+                        "user": obj.get("UserId", obj.get("user")),
+                        "message": obj.get("Message"),
+                        "record_id": obj.get("RecordId"),
+                    }
+                )
+
+            ts_key = next((k for k in ["timestamp","time","@timestamp","date","TimeCreated"] if k in obj), None)
             ts = parse_timestamp(str(obj[ts_key])) if ts_key else datetime.utcnow()
             sev = str(obj.get("level", obj.get("severity", "INFO"))).upper()
             sev = sev if sev in ["LOW","INFO","NOTICE","MEDIUM","HIGH","CRITICAL"] else "INFO"
@@ -769,7 +915,16 @@ def parse_raw_log(raw_line: str) -> Dict:
         if m and handler:
             return handler(raw_line, m)
 
-    # Fallback : log inconnu — on ne perd rien
+    # 🟢 Catégorisation heuristique de secours : avant de déclarer le log
+    # "inconnu", on tente de le catégoriser à partir de mots-clés et d'éléments
+    # caractéristiques (IP, ports, vocabulaire sécurité) présents dans la ligne.
+    # C'est ce qui évite qu'un format légèrement différent d'une regex stricte
+    # (espacement, variante de champ, etc.) finisse systématiquement en "inconnu".
+    heuristic_result = heuristic_categorize(raw_line)
+    if heuristic_result:
+        return heuristic_result
+
+    # Fallback ultime : log réellement non identifiable — on ne perd rien
     return create_siem_document(
         timestamp=datetime.utcnow(),
         host="unknown-device", log_type="inconnu", severity="LOW",
@@ -864,6 +1019,12 @@ if __name__ == "__main__":
         '{"timestamp":"2026-01-05T06:25:14.000Z","rule":{"id":"5710","level":10,"description":"SSH brute force attack detected"},"agent":{"name":"server01"}}',
         # JSON générique
         '{"timestamp":"2026-01-05T08:00:00Z","host":"app-server","level":"ERROR","source_ip":"10.0.0.5","message":"Unauthorized access"}',
+        # 🟢 JSON Windows réel (Get-WinEvent | ConvertTo-Json côté agent)
+        '{"RecordId":86,"Id":4625,"LevelDisplayName":"Error","ProviderName":"Microsoft-Windows-Security-Auditing","MachineName":"WS01","TimeCreated":"2026-01-05T06:25:14Z","Message":"An account failed to log on."}',
+        # 🟢 Variante SSH légèrement différente d'une regex stricte (heuristique)
+        "auth: user root failed password attempt from 203.0.113.7 port 22 on server-prod",
+        # 🟢 Ligne pare-feu non standard (heuristique)
+        "firewall-edge: connection DROP proto TCP src=198.51.100.4 dst=10.0.0.9 port=3389",
         # Log inconnu
         "ZXCV 9999 *** format totalement inconnu *** blabla",
     ]
