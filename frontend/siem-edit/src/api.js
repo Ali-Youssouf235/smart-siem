@@ -83,11 +83,29 @@ export const logsApi = {
     const response = await api.get('/logs/search', { params: { keyword: query } });
     return response.data;
   },
+  searchByField: async (filters = {}) => {
+    // Recherche multi-critères directe (utilisée pour le pivot sur un indicateur précis)
+    const response = await api.get('/logs/search', { params: filters });
+    return response.data;
+  },
   ingestRaw: async (rawLog) => {
     // Petite sécurité : ton FastAPI attend du texte brut ("text/plain") ou un body direct
     const response = await api.post('/logs/ingest/raw', rawLog, {
       headers: { 'Content-Type': 'text/plain' }
     });
+    return response.data;
+  },
+  getTimeline: async (filters = {}) => {
+    // { source_ip, host, date_from, date_to } — investigation forensique chronologique
+    const response = await api.get('/logs/timeline', { params: filters });
+    return response.data; // { total, timeline: [...] }
+  },
+  toggleSuspect: async (id, isSuspect) => {
+    const response = await api.patch(`/logs/${id}/suspect`, { is_suspect: isSuspect });
+    return response.data;
+  },
+  listSuspects: async (size = 100) => {
+    const response = await api.get('/logs/suspects', { params: { size } });
     return response.data;
   },
 };
@@ -98,12 +116,95 @@ export const reportsApi = {
     const response = await api.get('/reports/generate', { responseType: 'blob' });
     return response.data;
   },
+  listArchive: async (limit = 20) => {
+    const response = await api.get('/reports/archive', { params: { limit } });
+    return response.data; // { total, reports: [...] }
+  },
+  downloadArchived: async (id) => {
+    const response = await api.get(`/reports/archive/${id}/download`, { responseType: 'blob' });
+    return response.data;
+  },
+  getSchedule: async () => {
+    const response = await api.get('/reports/schedule');
+    return response.data; // { frequency, hour, last_run }
+  },
+  setSchedule: async (frequency, hour) => {
+    const response = await api.put('/reports/schedule', { frequency, hour });
+    return response.data;
+  },
+};
+
+/* ------------------ 📤 EXPORT CSV / EXCEL (Logs & Alertes) ------------------ */
+const triggerBlobDownload = (blobData, filename, mimeType) => {
+  const url = window.URL.createObjectURL(new Blob([blobData], { type: mimeType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.parentNode.removeChild(link);
+  window.URL.revokeObjectURL(url);
+};
+
+export const exportApi = {
+  exportLogs: async (format, filters = {}) => {
+    const response = await api.get('/logs/export', { params: { format, ...filters }, responseType: 'blob' });
+    const mime = format === 'xlsx'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'text/csv';
+    const ext = format === 'xlsx' ? 'xlsx' : 'csv';
+    triggerBlobDownload(response.data, `smart_siem_logs_${Date.now()}.${ext}`, mime);
+  },
+  exportAlerts: async (format, filters = {}) => {
+    const response = await api.get('/alerts/export', { params: { format, ...filters }, responseType: 'blob' });
+    const mime = format === 'xlsx'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'text/csv';
+    const ext = format === 'xlsx' ? 'xlsx' : 'csv';
+    triggerBlobDownload(response.data, `smart_siem_alertes_${Date.now()}.${ext}`, mime);
+  },
 };
 
 /* ------------------ 📡 AGENTS & CONTEXTE UEBA ------------------ */
 export const agentApi = {
   list: async () => {
     const response = await api.get('/agent');
+    return response.data;
+  },
+};
+
+/* ------------------ ⚙️ RÈGLES DE CORRÉLATION (MITRE ATT&CK) ------------------ */
+export const rulesApi = {
+  list: async () => {
+    const response = await api.get('/rules');
+    return response.data; // Format attendu : { total_rules: X, rules: [...] }
+  },
+  create: async (ruleData) => {
+    const response = await api.post('/rules', ruleData);
+    return response.data;
+  },
+  update: async (id, ruleData) => {
+    const response = await api.put(`/rules/${id}`, ruleData);
+    return response.data;
+  },
+  delete: async (id) => {
+    const response = await api.delete(`/rules/${id}`);
+    return response.data;
+  },
+};
+
+/* ------------------ 🗄️ POLITIQUE DE RÉTENTION DES LOGS ------------------ */
+export const retentionApi = {
+  get: async () => {
+    const response = await api.get('/retention');
+    return response.data; // { value, unit, duration_seconds }
+  },
+  update: async (value, unit) => {
+    const response = await api.put('/retention', { value, unit });
+    return response.data;
+  },
+  purgeNow: async () => {
+    const response = await api.post('/retention/purge-now');
     return response.data;
   },
 };

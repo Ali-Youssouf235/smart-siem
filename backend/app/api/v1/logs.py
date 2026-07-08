@@ -1,10 +1,13 @@
 from fastapi import APIRouter, status, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from app.schemas.log_schema import LogBaseSchema
 from app.core.engine import check_brute_force_ssh, check_lateral_movement
 from app.core.database import save_log_to_elasticsearch
 from app.services.parser import parse_raw_log 
 from app.core.ueba import detect_behavioral_anomalies
+from app.utils.export import export_to_csv, export_to_excel
 from typing import Optional, List
+from datetime import datetime
 from data.search import search_logs, get_timeline
 
 router = APIRouter(prefix="/api/v1/logs", tags=["Gestion des Logs"])
@@ -168,6 +171,43 @@ async def search_multi_criteria(
 
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+@router.get("/export", status_code=status.HTTP_200_OK)
+async def export_logs(
+    format: str = "csv",
+    source_ip: Optional[str] = None,
+    severity: Optional[str] = None,
+    log_type: Optional[str] = None,
+    host: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    keyword: Optional[str] = None,
+):
+    """
+    Exporte les résultats de recherche (mêmes filtres que /logs/search) au
+    format CSV ou Excel, pour les besoins d'audit/conformité (exigence 4.5).
+    Plafonné à 5000 lignes par export pour rester réactif ; affiner les
+    filtres pour des volumes plus importants.
+    """
+    if format not in ("csv", "xlsx"):
+        raise HTTPException(status_code=400, detail="Le paramètre 'format' doit être 'csv' ou 'xlsx'.")
+
+    try:
+        result = search_logs(
+            source_ip=source_ip, severity=severity, log_type=log_type,
+            host=host, date_from=date_from, date_to=date_to,
+            keyword=keyword, page=0, size=5000,
+        )
+        rows = result.get("logs", []) if isinstance(result, dict) else result
+
+        date_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        if format == "csv":
+            return export_to_csv(rows, filename=f"smart_siem_logs_{date_str}.csv")
+        return export_to_excel(rows, filename=f"smart_siem_logs_{date_str}.xlsx", sheet_title="Logs SIEM")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'export : {str(e)}")
+
+
 @router.get("/timeline", status_code=status.HTTP_200_OK)
 async def get_ip_timeline(
     source_ip: Optional[str] = None,

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { colors, roleConfig } from '../theme'
-import { authApi } from '../api' // Raccordement avec le contrôleur d'utilisateurs / gestion des comptes
+import { usersApi, retentionApi } from '../api' // 🟢 CORRECTIF : usersApi était utilisé plus bas sans être importé
 
 export default function Administration({ user }) {
   const [analysts, setAnalysts] = useState([])
@@ -10,6 +10,57 @@ export default function Administration({ user }) {
   // États pour le formulaire d'ajout d'un nouvel analyste
   const [formData, setFormData] = useState({ name: '', email: '', role: 'lecteur', password: '' })
   const [submitting, setSubmitting] = useState(false)
+
+  // États pour la politique de rétention des logs
+  const [retention, setRetention] = useState(null)
+  const [retentionValue, setRetentionValue] = useState(6)
+  const [retentionUnit, setRetentionUnit] = useState('months')
+  const [retentionSaving, setRetentionSaving] = useState(false)
+  const [retentionMessage, setRetentionMessage] = useState('')
+
+  const fetchRetention = async () => {
+    try {
+      const data = await retentionApi.get()
+      setRetention(data)
+      setRetentionValue(data.value)
+      setRetentionUnit(data.unit)
+    } catch (err) {
+      console.error("Erreur de récupération de la politique de rétention:", err)
+    }
+  }
+
+  const handleApplyRetention = async (value, unit) => {
+    setRetentionSaving(true)
+    setRetentionMessage('')
+    try {
+      const result = await retentionApi.update(value, unit)
+      setRetention(result.policy ? { ...result.policy, duration_seconds: result.duration_seconds } : retention)
+      setRetentionMessage(
+        `Politique appliquée : ${value} ${unit}. ${result.logs_purges_immediatement} log(s) déjà expiré(s) purgé(s) immédiatement.`
+      )
+    } catch (err) {
+      console.error("Erreur mise à jour rétention:", err)
+      setRetentionMessage("Erreur lors de l'application de la nouvelle politique de rétention.")
+    } finally {
+      setRetentionSaving(false)
+    }
+  }
+
+  const handlePurgeNow = async () => {
+    setRetentionSaving(true)
+    try {
+      const result = await retentionApi.purgeNow()
+      setRetentionMessage(`Purge manuelle exécutée : ${result.logs_supprimes} log(s) supprimé(s).`)
+    } catch (err) {
+      setRetentionMessage("Erreur lors de la purge manuelle.")
+    } finally {
+      setRetentionSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchRetention()
+  }, [])
 
   // 🔄 Chargement de la liste des analystes du SOC depuis le Backend
   const fetchAnalysts = async () => {
@@ -206,8 +257,86 @@ export default function Administration({ user }) {
           </form>
         </div>
       </div>
+
+      {/* Panneau : Politique de rétention des logs (RGPD / valeur probatoire) */}
+      <div style={styles.mainCard}>
+        <h3 style={styles.sectionTitle}>Politique de Rétention des Logs</h3>
+        <p style={{ fontSize: 12, color: colors.textMuted, marginTop: -8 }}>
+          Durée de conservation avant purge définitive des événements dans Elasticsearch.
+          Un changement est appliqué immédiatement (purge des logs déjà expirés) puis maintenu en continu.
+        </p>
+
+        {retention && (
+          <div style={{ fontSize: 13, color: colors.text, background: colors.primaryBg, padding: '8px 12px', borderRadius: 8, display: 'inline-flex', gap: 6, width: 'max-content' }}>
+            <strong>Politique active :</strong> {retention.value} {unitLabel(retention.unit)}
+          </div>
+        )}
+
+        {/* Préréglages réglementaires du cahier des charges */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {[
+            { label: '30 jours', value: 30, unit: 'days' },
+            { label: '6 mois', value: 6, unit: 'months' },
+            { label: '1 an', value: 1, unit: 'years' },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              disabled={retentionSaving}
+              onClick={() => { setRetentionValue(preset.value); setRetentionUnit(preset.unit); handleApplyRetention(preset.value, preset.unit) }}
+              style={{
+                padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                border: `1px solid ${colors.border}`,
+                background: retention?.value === preset.value && retention?.unit === preset.unit ? colors.primary : '#fff',
+                color: retention?.value === preset.value && retention?.unit === preset.unit ? '#fff' : colors.text,
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Valeur libre : de 1 heure à plusieurs années, "à la guise" de l'analyste */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: colors.textFaint, textTransform: 'uppercase' }}>Valeur personnalisée :</span>
+          <input
+            type="number"
+            min="1"
+            value={retentionValue}
+            onChange={(e) => setRetentionValue(e.target.value)}
+            style={{ width: 80, padding: '8px 10px', borderRadius: 8, border: `1px solid ${colors.border}` }}
+          />
+          <select value={retentionUnit} onChange={(e) => setRetentionUnit(e.target.value)} style={styles.select}>
+            <option value="hours">Heure(s)</option>
+            <option value="days">Jour(s)</option>
+            <option value="months">Mois</option>
+            <option value="years">Année(s)</option>
+          </select>
+          <button
+            disabled={retentionSaving}
+            onClick={() => handleApplyRetention(parseFloat(retentionValue), retentionUnit)}
+            style={{ ...styles.submitBtn, width: 'auto', padding: '8px 16px', marginTop: 0 }}
+          >
+            Appliquer
+          </button>
+          <button
+            disabled={retentionSaving}
+            onClick={handlePurgeNow}
+            style={{ background: '#fff', border: `1px solid ${colors.border}`, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: colors.text }}
+          >
+            Purger maintenant
+          </button>
+        </div>
+
+        {retentionMessage && (
+          <p style={{ fontSize: 12, color: colors.textMuted, margin: 0 }}>{retentionMessage}</p>
+        )}
+      </div>
     </div>
   )
+}
+
+function unitLabel(unit) {
+  return { hours: 'heure(s)', days: 'jour(s)', months: 'mois', years: 'année(s)' }[unit] || unit
 }
 
 const styles = {

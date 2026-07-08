@@ -5,6 +5,8 @@ import Alertes from './components/Alertes'
 import Rapports from './components/Rapports'
 import Recherche from './components/Recherche'
 import UEBA from './components/UEBA'
+import Regles from './components/Regle'
+import CrisisRoom from './components/CrisisRoom'
 import Administration from './components/Administration'
 import Connexion from './components/Connexion'
 import CreerCompte from './components/CreerCompte'
@@ -124,6 +126,10 @@ export default function App() {
         return <Recherche user={user} />
       case 'ueba':
         return <UEBA user={user} />
+      case 'regles':
+        return <Regles user={user} />
+      case 'crisis':
+        return <CrisisRoom onExit={() => setCurrentPage('dashboard')} />
       case 'administration':
         return <Administration user={user} onAddUser={handleOpenCreateUser} newUsers={createdUsers} />
       default:

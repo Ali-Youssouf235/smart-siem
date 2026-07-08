@@ -2,8 +2,12 @@ from fpdf import FPDF
 from datetime import datetime
 import tempfile
 import os
+import base64
+import uuid
 from app.core.database import es_client
 from typing import Dict, Any, List
+
+INDEX_REPORTS_ARCHIVE = "smart-siem-reports-archive"
 
 class SIEMReportPDF(FPDF):
     def header(self):
@@ -164,3 +168,36 @@ def generate_security_pdf() -> str:
     pdf.output(file_path)
     
     return file_path
+
+
+def archive_generated_report(pdf_path: str, report_type: str = "manuel") -> Dict[str, Any]:
+    """
+    Archive une copie du PDF généré (base64) dans Elasticsearch, pour
+    alimenter un véritable "Historique des livrables" côté Frontend
+    (exigence 4.5 : rapports consultables après coup, pas seulement
+    téléchargés une fois puis perdus).
+    """
+    if not es_client:
+        return {}
+
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    doc = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "type": report_type,  # "manuel" | "auto_quotidien" | "auto_hebdomadaire"
+        "filename": f"smart_siem_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
+        "size_bytes": len(pdf_bytes),
+        "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+    }
+    doc_id = str(uuid.uuid4())
+    es_client.index(index=INDEX_REPORTS_ARCHIVE, id=doc_id, document=doc, refresh="wait_for")
+    doc["id"] = doc_id
+    doc.pop("pdf_base64")  # on ne renvoie pas le binaire dans les métadonnées
+    return doc
+
+
+def generate_and_archive_report(report_type: str = "manuel") -> Dict[str, Any]:
+    """Raccourci : génère le PDF puis l'archive immédiatement."""
+    pdf_path = generate_security_pdf()
+    return archive_generated_report(pdf_path, report_type=report_type)

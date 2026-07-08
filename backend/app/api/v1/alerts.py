@@ -1,7 +1,9 @@
 from fastapi import APIRouter, status, HTTPException, Query, Body
 from app.core.database import es_client
 from app.schemas.alert_schema import AlertBaseSchema
+from app.utils.export import export_to_csv, export_to_excel
 from typing import List, Dict, Optional
+from datetime import datetime
 from app.api.v1.agent import get_live_agents_count
 from .agent import get_live_agents_count
 
@@ -74,6 +76,47 @@ async def get_active_alerts(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération des alertes : {str(e)}")
+
+
+@router.get("/export", status_code=status.HTTP_200_OK)
+async def export_alerts(
+    format: str = "csv",
+    severity: Optional[str] = Query(None, description="critical | high | warning | info"),
+    status_filter: Optional[str] = Query(None, alias="status", description="nouveau | en_cours | resolu"),
+):
+    """
+    Exporte les alertes (mêmes filtres que GET /alerts) au format CSV ou
+    Excel, pour les besoins d'audit/conformité (exigence 4.5). Plafonné à
+    5000 alertes par export.
+    """
+    if format not in ("csv", "xlsx"):
+        raise HTTPException(status_code=400, detail="Le paramètre 'format' doit être 'csv' ou 'xlsx'.")
+    if not es_client:
+        raise HTTPException(status_code=500, detail="Elasticsearch n'est pas connecté")
+
+    must_clauses = [{"exists": {"field": "regle_id"}}]
+    if severity:
+        es_severities = SEVERITY_FRONT_TO_ES.get(severity.lower(), [severity.upper()])
+        must_clauses.append({"terms": {"niveau_criticite.keyword": es_severities}})
+    if status_filter:
+        es_status = STATUS_FRONT_TO_ES.get(status_filter.lower(), status_filter)
+        must_clauses.append({"term": {"statut.keyword": es_status}})
+
+    try:
+        response = es_client.search(
+            index="smart-siem-logs",
+            body={"query": {"bool": {"must": must_clauses}}},
+            size=5000,
+        )
+        rows = [hit["_source"] for hit in response["hits"]["hits"]]
+
+        date_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        if format == "csv":
+            return export_to_csv(rows, filename=f"smart_siem_alertes_{date_str}.csv")
+        return export_to_excel(rows, filename=f"smart_siem_alertes_{date_str}.xlsx", sheet_title="Alertes SIEM")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'export : {str(e)}")
 
 
 @router.patch("/{alert_id}", status_code=status.HTTP_200_OK)

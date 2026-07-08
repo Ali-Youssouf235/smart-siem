@@ -13,12 +13,17 @@ def search_logs(
         date_to: str = None,
         is_suspect: bool = None,
         keyword: str = None,
+        perimetre_id: str = None,
         size: int = 100,
         page: int = 0
 ) -> dict:
     """
     Moteur de recherche universel Smart SIEM.
     Optimisé pour tolérer les formats de recherche flous du frontend.
+
+    🟢 `perimetre_id` : filtre EXACT (contrairement au `keyword` flou plus bas)
+    utilisé pour le cloisonnement des accès (RBAC 4.7) — un rôle "lecteur"
+    lié à un périmètre donné ne doit voir QUE les logs de ce périmètre.
     """
     filters = []
 
@@ -35,6 +40,8 @@ def search_logs(
         filters.append({"term": {"is_suspect": is_suspect}})
     if username:
         filters.append({"match": {"username": username}})
+    if perimetre_id:
+        filters.append({"term": {"perimetre_id.keyword": perimetre_id}})
 
     # --- RECHERCHE GLOBALE DYNAMIQUE (Le correctif principal) ---
     if keyword:

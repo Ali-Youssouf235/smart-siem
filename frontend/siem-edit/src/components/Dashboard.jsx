@@ -103,6 +103,14 @@ const loadDashboardData = async () => {
           <div style={styles.pulseDot}></div>
           <span style={styles.pulseText}>Moteur de corrélation actif</span>
         </div>
+        {(user?.role === 'analyste' || user?.role === 'admin') && (
+          <button
+            onClick={() => onNavigate('crisis')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0B1120', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+          >
+            <i className="ti ti-alert-octagon" style={{ color: '#EF4444' }} /> Mode Crisis Room
+          </button>
+        )}
       </div>
 
       {/* 4 Cartes de KPIS Métriques de l'infrastructure */}

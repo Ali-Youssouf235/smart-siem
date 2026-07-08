@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { colors } from '../theme'
-import { reportsApi } from '../api' // Raccordement au service d'exportation de fichiers PDF
+import { reportsApi, exportApi } from '../api'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -23,33 +23,122 @@ const threatCategories = [
   { name: 'Autres', value: 3, color: colors.textFaint },
 ]
 
+const FREQUENCY_LABELS = { daily: 'Quotidien', weekly: 'Hebdomadaire', disabled: 'Désactivé' }
+const TYPE_LABELS = { manuel: 'Manuel', auto_quotidien: 'Auto (quotidien)', auto_hebdomadaire: 'Auto (hebdomadaire)' }
+
 export default function Rapports({ user }) {
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState('')
 
-  // 🔄 Téléchargement du rapport PDF Cyber en direct depuis FastAPI
+  // Historique réel des rapports déjà générés
+  const [archive, setArchive] = useState([])
+  const [archiveLoading, setArchiveLoading] = useState(true)
+
+  // Planification automatique
+  const [schedule, setSchedule] = useState(null)
+  const [frequency, setFrequency] = useState('disabled')
+  const [hour, setHour] = useState(7)
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [scheduleMsg, setScheduleMsg] = useState('')
+
+  // Export des alertes
+  const [exporting, setExporting] = useState('')
+
+  const isAdmin = user?.role === 'admin'
+
+  const fetchArchive = async () => {
+    setArchiveLoading(true)
+    try {
+      const data = await reportsApi.listArchive(20)
+      setArchive(data.reports || [])
+    } catch (err) {
+      console.error("Erreur historique rapports:", err)
+    } finally {
+      setArchiveLoading(false)
+    }
+  }
+
+  const fetchSchedule = async () => {
+    try {
+      const data = await reportsApi.getSchedule()
+      setSchedule(data)
+      setFrequency(data.frequency || 'disabled')
+      setHour(data.hour ?? 7)
+    } catch (err) {
+      console.error("Erreur planification rapports:", err)
+    }
+  }
+
+  useEffect(() => {
+    fetchArchive()
+    fetchSchedule()
+  }, [])
+
+  // 🔄 Téléchargement du rapport PDF Cyber en direct depuis FastAPI (archive automatiquement côté serveur)
   const handleDownloadReport = async () => {
     setDownloading(true)
     setError('')
     try {
       const blobData = await reportsApi.downloadPdf()
-      
-      // Technique standard pour forcer le navigateur à télécharger le flux binaire PDF
       const url = window.URL.createObjectURL(new Blob([blobData], { type: 'application/pdf' }))
       const link = document.createElement('a')
       link.href = url
       link.setAttribute('download', `Smart_SIEM_Rapport_Securite_${new Date().toISOString().split('T')[0]}.pdf`)
       document.body.appendChild(link)
       link.click()
-      
-      // Nettoyage de la mémoire du navigateur
       link.parentNode.removeChild(link)
       window.URL.revokeObjectURL(url)
+      fetchArchive() // Le nouveau rapport vient d'être archivé côté serveur : on rafraîchit la liste
     } catch (err) {
       console.error("Erreur d'export PDF:", err)
       setError("Erreur lors de la génération du PDF. Vérifiez votre backend FastAPI.")
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const handleDownloadArchived = async (report) => {
+    try {
+      const blobData = await reportsApi.downloadArchived(report.id)
+      const url = window.URL.createObjectURL(new Blob([blobData], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', report.filename || 'rapport.pdf')
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert("Erreur lors du téléchargement du rapport archivé.")
+    }
+  }
+
+  const handleSaveSchedule = async () => {
+    setSavingSchedule(true)
+    setScheduleMsg('')
+    try {
+      const result = await reportsApi.setSchedule(frequency, parseInt(hour, 10))
+      setSchedule(result.schedule)
+      setScheduleMsg(
+        frequency === 'disabled'
+          ? 'Génération automatique désactivée.'
+          : `Génération automatique activée : ${FREQUENCY_LABELS[frequency].toLowerCase()}, vers ${hour}h00 (UTC).`
+      )
+    } catch (err) {
+      setScheduleMsg("Erreur lors de l'enregistrement de la planification.")
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
+  const handleExportAlerts = async (format) => {
+    setExporting(format)
+    try {
+      await exportApi.exportAlerts(format)
+    } catch (err) {
+      alert("Erreur lors de l'export des alertes.")
+    } finally {
+      setExporting('')
     }
   }
 
@@ -61,23 +150,22 @@ export default function Rapports({ user }) {
           <h1 style={styles.title}>Rapports & Gouvernance RSSI</h1>
           <p style={styles.subtitle}>Générez des extractions analytiques pour les audits de conformité et de gouvernance</p>
         </div>
-        
-        {/* Le gros bouton d'action connecté à ton backend */}
-        <button 
-          style={styles.downloadBtn} 
-          onClick={handleDownloadReport} 
-          disabled={downloading}
-        >
-          {downloading ? (
-            <>
-              <i className="ti ti-loader animate-spin" /> Compilation du PDF...
-            </>
-          ) : (
-            <>
-              <i className="ti ti-file-download" /> Exporter le Rapport Mensuel (PDF)
-            </>
-          )}
-        </button>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={() => handleExportAlerts('csv')} disabled={exporting !== ''} style={styles.secondaryBtn}>
+            {exporting === 'csv' ? <i className="ti ti-loader animate-spin" /> : <><i className="ti ti-file-type-csv" /> Alertes CSV</>}
+          </button>
+          <button onClick={() => handleExportAlerts('xlsx')} disabled={exporting !== ''} style={styles.secondaryBtn}>
+            {exporting === 'xlsx' ? <i className="ti ti-loader animate-spin" /> : <><i className="ti ti-file-spreadsheet" /> Alertes Excel</>}
+          </button>
+          <button style={styles.downloadBtn} onClick={handleDownloadReport} disabled={downloading}>
+            {downloading ? (
+              <><i className="ti ti-loader animate-spin" /> Compilation du PDF...</>
+            ) : (
+              <><i className="ti ti-file-download" /> Exporter le Rapport (PDF)</>
+            )}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -86,7 +174,43 @@ export default function Rapports({ user }) {
         </div>
       )}
 
-      {/* Reste de la maquette visuelle avec tes graphiques Recharts d'origine */}
+      {/* Planification automatique — réservée aux admins */}
+      {isAdmin && (
+        <div style={styles.chartCard}>
+          <h3 style={styles.chartTitle}>Génération Automatique des Rapports</h3>
+          <p style={{ fontSize: 12, color: colors.textMuted, marginTop: -10, marginBottom: 14 }}>
+            Un rapport PDF sera généré et archivé tout seul, sans action manuelle, selon la fréquence choisie.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <select value={frequency} onChange={(e) => setFrequency(e.target.value)} style={styles.select}>
+              <option value="disabled">Désactivé</option>
+              <option value="daily">Quotidien</option>
+              <option value="weekly">Hebdomadaire (tous les 7 jours)</option>
+            </select>
+            {frequency !== 'disabled' && (
+              <>
+                <span style={{ fontSize: 12, color: colors.textMuted }}>vers</span>
+                <select value={hour} onChange={(e) => setHour(e.target.value)} style={styles.select}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}h00 (UTC)</option>
+                  ))}
+                </select>
+              </>
+            )}
+            <button onClick={handleSaveSchedule} disabled={savingSchedule} style={styles.secondaryBtn}>
+              {savingSchedule ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </div>
+          {schedule?.last_run && (
+            <p style={{ fontSize: 12, color: colors.textFaint, marginTop: 10 }}>
+              Dernière génération automatique : {new Date(schedule.last_run).toLocaleString('fr-FR')}
+            </p>
+          )}
+          {scheduleMsg && <p style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}>{scheduleMsg}</p>}
+        </div>
+      )}
+
+      {/* Reste de la maquette visuelle avec les graphiques Recharts d'origine */}
       <div style={styles.topRow}>
         <div style={styles.chartCard}>
           <h3 style={styles.chartTitle}>Tendances Semestrielles des Incidents</h3>
@@ -133,24 +257,26 @@ export default function Rapports({ user }) {
       <div style={styles.bottomRow}>
         <div style={styles.chartCard}>
           <h3 style={styles.chartTitle}>Historique des Livrables Générés</h3>
-          <div style={styles.reportList}>
-            <div style={styles.reportItem}>
-              <div style={styles.reportIcon}><i className="ti ti-file-analytics" style={{ color: colors.primary }} /></div>
-              <div style={styles.reportContent}>
-                <span style={styles.reportName}>Rapport trimestriel d'Audit Interne</span>
-                <span style={styles.reportMeta}>Généré par system · Format PDF · 4.2 MB</span>
-              </div>
-              <button style={styles.viewAllBtn} onClick={handleDownloadReport}><i className="ti ti-download" /></button>
+          {archiveLoading ? (
+            <p style={{ fontSize: 13, color: colors.textMuted }}>Chargement de l'historique...</p>
+          ) : archive.length === 0 ? (
+            <p style={{ fontSize: 13, color: colors.textMuted }}>Aucun rapport généré pour le moment. Cliquez sur "Exporter le Rapport (PDF)" pour créer le premier.</p>
+          ) : (
+            <div style={styles.reportList}>
+              {archive.map((report) => (
+                <div key={report.id} style={styles.reportItem}>
+                  <div style={styles.reportIcon}>
+                    <i className="ti ti-file-analytics" style={{ color: report.type === 'manuel' ? colors.primary : colors.success }} />
+                  </div>
+                  <div style={styles.reportContent}>
+                    <span style={styles.reportName}>{TYPE_LABELS[report.type] || report.type} — {new Date(report.generated_at).toLocaleString('fr-FR')}</span>
+                    <span style={styles.reportMeta}>Format PDF · {((report.size_bytes || 0) / 1024).toFixed(0)} Ko</span>
+                  </div>
+                  <button style={styles.viewAllBtn} onClick={() => handleDownloadArchived(report)}><i className="ti ti-download" /></button>
+                </div>
+              ))}
             </div>
-            <div style={styles.reportItem}>
-              <div style={styles.reportIcon}><i className="ti ti-file-text" style={{ color: colors.success }} /></div>
-              <div style={styles.reportContent}>
-                <span style={styles.reportName}>Synthèse de Conformité ANSSI / ISO 27001</span>
-                <span style={styles.reportMeta}>Généré par system · Format PDF · 1.8 MB</span>
-              </div>
-              <button style={styles.viewAllBtn} onClick={handleDownloadReport}><i className="ti ti-download" /></button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -159,10 +285,12 @@ export default function Rapports({ user }) {
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', gap: 20 },
-  header: { display: 'flex', justifyContent: 'spaceBetween', alignItems: 'center', flexWrap: 'wrap', gap: 16 },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 },
   title: { fontSize: 22, fontWeight: 800, color: colors.text },
   subtitle: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
   downloadBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', background: colors.primary, border: 'none', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 14px rgba(24,95,165,0.2)' },
+  secondaryBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: 10, color: colors.text, fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+  select: { padding: '8px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, fontSize: 13, background: '#fff', color: colors.text, cursor: 'pointer' },
   topRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, flexWrap: 'wrap' },
   chartCard: { background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column' },
   chartTitle: { fontSize: 14, fontWeight: 700, color: colors.text, marginBottom: 16 },
