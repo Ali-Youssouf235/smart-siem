@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { colors } from '../theme'
-import { reportsApi, exportApi } from '../api'
+import { reportsApi, exportApi, dashboardApi } from '../api'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -15,13 +15,8 @@ const monthlyTrends = [
   { month: 'Juin', alertes: 166, resolues: 155, menaces: 32 },
 ]
 
-const threatCategories = [
-  { name: 'Malware', value: 28, color: colors.critical },
-  { name: 'Phishing', value: 35, color: colors.high },
-  { name: 'Accès non autorisé', value: 22, color: colors.warning },
-  { name: 'DDoS', value: 12, color: colors.primary },
-  { name: 'Autres', value: 3, color: colors.textFaint },
-]
+// Palette appliquée dans l'ordre aux catégories réelles renvoyées par le backend
+const CATEGORY_PALETTE = [colors.critical, colors.high, colors.warning, colors.primary, colors.success, colors.textFaint]
 
 const FREQUENCY_LABELS = { daily: 'Quotidien', weekly: 'Hebdomadaire', disabled: 'Désactivé' }
 const TYPE_LABELS = { manuel: 'Manuel', auto_quotidien: 'Auto (quotidien)', auto_hebdomadaire: 'Auto (hebdomadaire)' }
@@ -43,6 +38,29 @@ export default function Rapports({ user }) {
 
   // Export des alertes
   const [exporting, setExporting] = useState('')
+
+  // Répartition réelle des événements par catégorie (moteur de corrélation)
+  const [categoryData, setCategoryData] = useState([])
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
+
+  const fetchCategories = async () => {
+    setCategoriesLoading(true)
+    try {
+      const data = await dashboardApi.getCategories()
+      const total = data.total || 1
+      const withColors = (data.categories || []).map((c, i) => ({
+        name: c.category,
+        value: Math.round((c.count / total) * 100),
+        count: c.count,
+        color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length],
+      }))
+      setCategoryData(withColors)
+    } catch (err) {
+      console.error("Erreur chargement des catégories:", err)
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }
 
   const isAdmin = user?.role === 'admin'
 
@@ -72,6 +90,7 @@ export default function Rapports({ user }) {
   useEffect(() => {
     fetchArchive()
     fetchSchedule()
+    fetchCategories()
   }, [])
 
   // 🔄 Téléchargement du rapport PDF Cyber en direct depuis FastAPI (archive automatiquement côté serveur)
@@ -229,28 +248,34 @@ export default function Rapports({ user }) {
         </div>
 
         <div style={styles.chartCard}>
-          <h3 style={styles.chartTitle}>Vecteurs d'Attaque Prédominants</h3>
+          <h3 style={styles.chartTitle}>Répartition Réelle des Événements par Catégorie</h3>
+          {categoriesLoading ? (
+            <p style={{ fontSize: 13, color: colors.textMuted }}>Chargement...</p>
+          ) : categoryData.length === 0 ? (
+            <p style={{ fontSize: 13, color: colors.textMuted }}>Aucun événement catégorisé pour le moment — ingérez des logs pour peupler ce graphique.</p>
+          ) : (
           <div style={{ height: 220, display: 'flex', alignItems: 'center' }}>
             <ResponsiveContainer width="60%" height="100%">
               <PieChart>
-                <Pie data={threatCategories} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">
-                  {threatCategories.map((entry, index) => (
+                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">
+                  {categoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value, name, props) => [`${props.payload.count} événement(s)`, props.payload.name]} />
               </PieChart>
             </ResponsiveContainer>
             <div style={styles.pieLegend}>
-              {threatCategories.map((item, i) => (
+              {categoryData.map((item, i) => (
                 <div key={i} style={styles.pieLegendItem}>
                   <div style={{ ...styles.legendColor, background: item.color }} />
                   <span style={styles.legendName}>{item.name}</span>
-                  <span style={styles.legendValue}>{item.value}%</span>
+                  <span style={styles.legendValue}>{item.count}</span>
                 </div>
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 

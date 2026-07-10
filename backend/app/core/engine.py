@@ -10,6 +10,24 @@ ALERTE_STORAGE_GLOBAL: List[AlertBaseSchema] = []
 
 INDEX_RULES = "smart-siem-rules"
 
+# 🟢 CATALOGUE DE CATÉGORISATION
+# Table de correspondance unique regle_id -> catégorie lisible + tactique/technique
+# MITRE ATT&CK. C'est ici, et ici seulement, que se définit "ce que veut dire"
+# chaque règle : si on ajoute une règle demain, on ajoute une ligne ici et toutes
+# les alertes qu'elle génère sont automatiquement catégorisées clairement.
+CATALOGUE_REGLES = {
+    "MITRE-T1110-BRUTEFORCE": {
+        "categorie": "Brute Force SSH",
+        "tactique_mitre": "TA0001 - Initial Access",
+        "technique_mitre": "T1110 - Brute Force",
+    },
+    "MITRE-T1081-LATERAL-MOVEMENT": {
+        "categorie": "Mouvement Latéral",
+        "tactique_mitre": "TA0008 - Lateral Movement",
+        "technique_mitre": "T1021 - Remote Services",
+    },
+}
+
 
 def get_rule_config(rule_id: str, default_threshold: int, default_severity: str):
     """
@@ -86,13 +104,22 @@ def check_brute_force_ssh(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
         return None
 
     if len(echecs_sur_hote) >= seuil:
+        meta = CATALOGUE_REGLES["MITRE-T1110-BRUTEFORCE"]
         nouvelle_alerte = AlertBaseSchema(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             timestamp=datetime.utcnow(),
             niveau_criticite=severite,
             statut="ouvert",
             regle_id="MITRE-T1110-BRUTEFORCE",
-            utilisateur_id=None
+            utilisateur_id=None,
+            categorie=meta["categorie"],
+            tactique_mitre=meta["tactique_mitre"],
+            technique_mitre=meta["technique_mitre"],
+            description=(
+                f"{len(echecs_sur_hote)} échecs d'authentification SSH détectés sur "
+                f"l'hôte {new_log.host} en moins de 60 secondes, depuis l'IP {new_log.source_ip}."
+            ),
+            sources_correlees=["auth"],
         )
         ALERTE_STORAGE_GLOBAL.append(nouvelle_alerte)
         
@@ -141,13 +168,25 @@ def check_lateral_movement(new_log: LogBaseSchema) -> Optional[AlertBaseSchema]:
         return None
 
     if len(hotes_visites) >= seuil:
+        meta = CATALOGUE_REGLES["MITRE-T1081-LATERAL-MOVEMENT"]
+        # Sources réellement combinées pour lever cette alerte (met en évidence
+        # la corrélation inter-sources quand plusieurs types de logs sont impliqués)
+        sources = sorted(set(log.log_type for log in connexions_recentes))
         nouvelle_alerte = AlertBaseSchema(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             timestamp=datetime.utcnow(),
             niveau_criticite=severite,
             statut="ouvert",
             regle_id="MITRE-T1081-LATERAL-MOVEMENT",
-            utilisateur_id=None
+            utilisateur_id=None,
+            categorie=meta["categorie"],
+            tactique_mitre=meta["tactique_mitre"],
+            technique_mitre=meta["technique_mitre"],
+            description=(
+                f"L'IP {new_log.source_ip} s'est connectée à {len(hotes_visites)} hôtes "
+                f"différents ({', '.join(sorted(hotes_visites))}) en moins de 5 minutes."
+            ),
+            sources_correlees=sources,
         )
         ALERTE_STORAGE_GLOBAL.append(nouvelle_alerte)
         

@@ -241,16 +241,20 @@ const loadDashboardData = async () => {
       recentLogs.map((log, index) => {
         // Extraction propre de l'heure pour le style
         const time = log.timestamp ? log.timestamp.substring(11, 19) : 'LIVE';
-        const isFailed = log.message_brut?.includes('Failed') || log.message?.includes('Failed');
+        // 🟢 CORRECTIF : le backend renvoie 'raw_message' (et 'description' pour
+        // les alertes), pas 'message_brut' qui n'a jamais existé côté API —
+        // ça retombait systématiquement sur un JSON.stringify illisible.
+        const displayMessage = log.description || log.raw_message || log.message || JSON.stringify(log);
+        const isFailed = displayMessage.includes('Failed') || displayMessage.includes('échec');
 
         return (
           <div key={index} style={{ marginBottom: '6px', borderLeft: `3px solid ${isFailed ? '#f85149' : '#308f43'}`, paddingLeft: '8px' }}>
             <span style={{ color: '#8b949e' }}>[{time}]</span>{' '}
             <span style={{ color: isFailed ? '#f85149' : '#58a6ff', fontWeight: 'bold' }}>
-              [{log.severity || log.niveau_criticite || 'INFO'}]
+              [{log.category || log.severity || log.niveau_criticite || 'INFO'}]
             </span>{' '}
             <span style={{ color: '#c9d1d9' }}>
-              {log.message_brut || log.message || JSON.stringify(log)}
+              {displayMessage}
             </span>
           </div>
         );

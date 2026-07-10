@@ -41,15 +41,20 @@ export default function Alertes({ user }) {
         return {
           id: item.id || item._id || `ALERTE-${index}`,
           severity: finalSev,
-          // Récupération dynamique du message textuel
-          message: item.message_brut || item.message || "Événement de sécurité détecté",
+          // 🟢 CORRECTIF : le backend renvoie 'description' (résumé humain généré
+          // par le moteur de corrélation), pas 'message_brut' qui n'a jamais existé.
+          message: item.description || item.message || "Événement de sécurité détecté",
           // Extraction propre de l'heure (HH:MM:SS) depuis le timestamp complet
           time: item.timestamp ? item.timestamp.substring(11, 19) : (item.time || 'En direct'),
-          status: item.status || 'nouveau',
+          status: item.status || item.statut || 'nouveau',
           source: item.agent_id || item.source || 'Collecteur Local',
           ip: item.source_ip || item.ip || 'N/A',
-          host: item.host || 'Machine Windows',
-          mitre: item.nom_regle || item.mitre || 'T1110 - Brute Force SSH'
+          host: item.cible_host || item.host || 'N/A',
+          // 🟢 CORRECTIF : 'categorie' est le champ réel posé par le moteur de
+          // corrélation (app/core/categorization.py). L'ancien code retombait
+          // systématiquement sur 'T1110 - Brute Force SSH' codé en dur, ce qui
+          // affichait la même catégorie sur TOUTES les alertes sans exception.
+          mitre: item.categorie || item.regle_id || 'Non catégorisé'
         }
       })
 

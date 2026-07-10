@@ -40,6 +40,15 @@ export const authApi = {
   },
 };
 
+/* ------------------ 🧠 UEBA — PROFILS DE RISQUE RÉELS ------------------ */
+export const uebaApi = {
+  getProfiles: async () => {
+    const response = await api.get('/ueba/profiles');
+    return response.data; // { total_entities, entities: [...] }
+  },
+};
+
+
 /* ------------------ 👥 GESTION DES ANALYSTES (Elasticsearch) ------------------ */
 export const usersApi = {
   list: async () => {
@@ -162,6 +171,18 @@ export const exportApi = {
       : 'text/csv';
     const ext = format === 'xlsx' ? 'xlsx' : 'csv';
     triggerBlobDownload(response.data, `smart_siem_alertes_${Date.now()}.${ext}`, mime);
+  },
+};
+
+/* ------------------ 📊 DASHBOARD — AGRÉGATIONS RÉELLES (catégorisation) ------------------ */
+export const dashboardApi = {
+  getCategories: async (size = 12) => {
+    const response = await api.get('/dashboard/categories', { params: { size } });
+    return response.data; // { total, categories: [{ category, count }] }
+  },
+  getTopSources: async (size = 10) => {
+    const response = await api.get('/dashboard/top-sources', { params: { size } });
+    return response.data; // { metric, top_sources: [{ ip, count }] }
   },
 };
 

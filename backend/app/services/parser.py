@@ -2,6 +2,7 @@ import re
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, List
+from app.core.categorization import categorize_log
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SMART SIEM — UNIVERSAL LOG PARSER
@@ -961,6 +962,7 @@ def create_siem_document(timestamp, host, log_type, severity,
         "timestamp":        final_timestamp,
         "host":             host or "unknown",
         "log_type":         log_type,
+        "category":         categorize_log(log_type, raw_message, severity),
         "severity":         severity,
         "source_ip":        source_ip,
         "destination_ip":   destination_ip,

@@ -267,6 +267,11 @@ async def get_alert_stats() -> Dict:
 # bon préfixe, comme pour /api/v1/dashboard/top-sources ci-dessous.
 anomaly_router = APIRouter(prefix="/api/v1/anomaly", tags=["Moteur IA / UEBA"])
 dashboard_router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard SOC"])
+# 🟢 NOUVEAU : le frontend (UEBA.jsx -> uebaApi.getProfiles) appelle
+# GET /api/v1/ueba/profiles, qui n'existait pas côté backend (404). On construit
+# les profils à partir des alertes comportementales réellement levées par
+# app/core/ueba.py (regle_id préfixé "UEBA-") et du score de risque en mémoire.
+ueba_router = APIRouter(prefix="/api/v1/ueba", tags=["UEBA - Profils de Risque"])
 
 
 @anomaly_router.post("/analyze", status_code=status.HTTP_200_OK)
@@ -326,3 +331,53 @@ async def get_top_sources():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- 4. UEBA : PROFILS DE RISQUE PAR ENTITÉ ---
+
+@ueba_router.get("/profiles", status_code=status.HTTP_200_OK)
+async def get_ueba_profiles():
+    """
+    Construit les profils de risque affichés par UEBA.jsx à partir des alertes
+    comportementales réellement levées (index smart-siem-logs, regle_id
+    préfixé 'UEBA-') et du score de risque cumulé en mémoire (app.core.ueba).
+    Implémentation simple mais fonctionnelle : suffisante pour démontrer le
+    scénario S7 (Nina Myers) en présentation.
+    """
+    if not es_client:
+        return {"total_entities": 0, "entities": []}
+
+    from app.core.ueba import get_risk_score
+
+    try:
+        response = es_client.search(
+            index="smart-siem-logs",
+            body={
+                "query": {"prefix": {"regle_id.keyword": "UEBA-"}},
+                "sort": [{"timestamp": "desc"}],
+            },
+            size=200,
+        )
+        hits = [h["_source"] for h in response["hits"]["hits"]]
+    except Exception as e:
+        # Index pas encore créé ou aucune alerte UEBA levée pour l'instant
+        return {"total_entities": 0, "entities": []}
+
+    profils_par_host: Dict[str, Dict] = {}
+    for alerte in hits:
+        host = alerte.get("cible_host") or "unknown-host"
+        entite = profils_par_host.setdefault(host, {
+            "id": host,
+            "name": host,
+            "email": f"{host}@ctu.local",
+            "department": "Non renseigné",
+            "riskScore": 0,
+            "anomalies": [],
+        })
+        if alerte.get("description") and len(entite["anomalies"]) < 10:
+            entite["anomalies"].append(alerte["description"])
+        score_alerte = alerte.get("score_risque", 0) or 0
+        entite["riskScore"] = max(entite["riskScore"], score_alerte, get_risk_score(host))
+
+    entities = sorted(profils_par_host.values(), key=lambda e: e["riskScore"], reverse=True)
+    return {"total_entities": len(entities), "entities": entities}

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from app.api.v1 import logs, alerts, rules, agent, auth, retention  # 🟢 AJOUT DES MODULES
 from app.core.database import es_client
 from app.api.v1.reports import router as reports_router
-from app.api.v1.alerts import anomaly_router, dashboard_router  # 🟢 CORRECTIF routes /../
+from app.api.v1.alerts import anomaly_router, dashboard_router, ueba_router  # 🟢 CORRECTIF routes /../
 
 # 🟢 Intervalle de la purge automatique de fond (en secondes). Une valeur basse
 # (60s) permet de démontrer en direct qu'une politique de rétention courte
@@ -107,6 +107,7 @@ app.include_router(reports_router)
 app.include_router(anomaly_router)     # 🟢 CORRECTIF : anciennement /api/v1/alerts/../anomaly/*
 app.include_router(dashboard_router)   # 🟢 CORRECTIF : anciennement /api/v1/alerts/../dashboard/*
 app.include_router(retention.router)   # 🟢 POLITIQUE DE RÉTENTION DES LOGS
+app.include_router(ueba_router)        # 🟢 NOUVEAU : GET /api/v1/ueba/profiles (fixe le 404 du frontend)
 
 @app.get("/health", tags=["Infrastructure"])
 async def health_check():

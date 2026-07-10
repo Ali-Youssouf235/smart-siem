@@ -38,6 +38,11 @@ class LogBaseSchema(BaseModel):
         description="Catégorie : 'auth', 'réseau', 'système', 'application'."
     )
     
+    category: Optional[str] = Field(
+        default="Non Catégorisé",
+        description="Catégorie métier lisible de l'événement (ex: 'Authentification', 'Intrusion / Malware')."
+    )
+    
     severity: Optional[str] = Field(
         default="info", 
         description="Niveau de sévérité : 'info', 'warning', 'critical'."

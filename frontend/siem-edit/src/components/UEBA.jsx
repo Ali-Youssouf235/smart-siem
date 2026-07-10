@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { colors, severityConfig } from '../theme'
-import { agentApi } from '../api' // Raccordement avec le service d'agents comportementaux
+
+import { uebaApi } from '../api' // Raccordement avec le service de profils de risque UEBA
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
@@ -36,12 +37,11 @@ export default function UEBA({ user }) {
     setLoading(true)
     setError('')
     try {
-      const data = await agentApi.list()
-      
+       const data = await uebaApi.getProfiles()
+ 
       // Sécurité sur la structure de tableau attendue
-      const list = Array.isArray(data) ? data : data?.agents || []
+      const list = Array.isArray(data) ? data : data?.entities || []
       setAnalysedUsers(list)
-
       // Sélectionner automatiquement le premier utilisateur de la liste s'il y en a un
       if (list.length > 0) {
         setSelectedUser(list[0])
@@ -80,8 +80,16 @@ export default function UEBA({ user }) {
           {/* Colonne de Gauche : Liste des identités surveillées */}
           <div style={styles.sidebarCard}>
             <h3 style={styles.sectionTitle}>Identités à Risque</h3>
-            <div style={styles.userList}>
+             <div style={styles.userList}>
+              {analysedUsers.length === 0 && (
+                <p style={{ fontSize: 12, color: colors.textMuted, padding: '8px 2px' }}>
+                  Aucune entité à risque détectée pour le moment. Cette liste se peuple
+                  automatiquement dès qu'une alerte de corrélation ou de comportement (UEBA)
+                  est levée sur un hôte.
+                </p>
+              )}
               {analysedUsers.map((u) => {
+ 
                 const isSelected = selectedUser?.id === u.id
                 let statusColor = colors.success
                 if (u.riskScore > 80) statusColor = colors.critical
